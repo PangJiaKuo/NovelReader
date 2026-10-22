@@ -1,0 +1,16 @@
+# dependencies
+node_modules/
+
+# runtime data (accounts, tokens and synced progress)
+server/data/
+
+# local test artifacts
+tests/tmp/
+*.log
+*.tmp
+
+# editors / OS
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

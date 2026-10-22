@@ -1,0 +1,596 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#f4efe4" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#181a1c" media="(prefers-color-scheme: dark)">
+  <meta name="description" content="墨阅 Moread：本地优先的 EPUB / TXT 阅读器，支持自动章节目录、排版自定义与跨设备阅读进度同步。">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="墨阅">
+  <title>墨阅 · 私人阅读空间</title>
+  <link rel="manifest" href="./manifest.webmanifest">
+  <link rel="icon" href="./favicon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="./icons/apple-touch-icon.png">
+  <link rel="stylesheet" href="./assets/styles.css">
+</head>
+<body>
+  <svg class="svg-defs" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" focusable="false">
+    <symbol id="icon-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.6"/><path d="M16 16l4.2 4.2"/></symbol>
+    <symbol id="icon-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+    <symbol id="icon-cloud" viewBox="0 0 24 24"><path d="M7.2 18.2h9.6a3.7 3.7 0 0 0 .7-7.3A5.8 5.8 0 0 0 6.1 9.4a4.5 4.5 0 0 0 1.1 8.8Z"/></symbol>
+    <symbol id="icon-help" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.6"/><path d="M9.7 9.2a2.35 2.35 0 1 1 3.4 2.1c-.7.4-1.1.9-1.1 1.7v.4"/><circle cx="12" cy="16.8" r=".8" fill="currentColor" stroke="none"/></symbol>
+    <symbol id="icon-download" viewBox="0 0 24 24"><path d="M12 4v10.5M7.8 10.5 12 14.7l4.2-4.2M5 19.5h14"/></symbol>
+    <symbol id="icon-arrow-left" viewBox="0 0 24 24"><path d="M19 12H5M11.2 18.2 5 12l6.2-6.2"/></symbol>
+    <symbol id="icon-chevron-left" viewBox="0 0 24 24"><path d="M14.5 5.5 8 12l6.5 6.5"/></symbol>
+    <symbol id="icon-chevron-right" viewBox="0 0 24 24"><path d="M9.5 5.5 16 12l-6.5 6.5"/></symbol>
+    <symbol id="icon-chevron-down" viewBox="0 0 24 24"><path d="M5.5 9.5 12 16l6.5-6.5"/></symbol>
+    <symbol id="icon-close" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></symbol>
+    <symbol id="icon-list" viewBox="0 0 24 24"><path d="M9 6.5h11M9 12h11M9 17.5h11"/><circle cx="4.8" cy="6.5" r="1" fill="currentColor" stroke="none"/><circle cx="4.8" cy="12" r="1" fill="currentColor" stroke="none"/><circle cx="4.8" cy="17.5" r="1" fill="currentColor" stroke="none"/></symbol>
+    <symbol id="icon-bookmark" viewBox="0 0 24 24"><path d="M6.5 4.5h11v16L12 16.2l-5.5 4.3z"/></symbol>
+    <symbol id="icon-sliders" viewBox="0 0 24 24"><path d="M4 7.5h5M13 7.5h7M4 16.5h7M15 16.5h5"/><circle cx="10.5" cy="7.5" r="2.1"/><circle cx="13.5" cy="16.5" r="2.1"/></symbol>
+    <symbol id="icon-fullscreen" viewBox="0 0 24 24"><path d="M9 4H4v5M15 4h5v5M20 15v5h-5M9 20H4v-5"/></symbol>
+    <symbol id="icon-trash" viewBox="0 0 24 24"><path d="M4.5 7h15M9 7V4.8h6V7M7 7l1 13h8l1-13M10 11v5M14 11v5"/></symbol>
+    <symbol id="icon-refresh" viewBox="0 0 24 24"><path d="M20 11a8 8 0 1 0-2.3 6.2M20 5v6h-6"/></symbol>
+    <symbol id="icon-user" viewBox="0 0 24 24"><circle cx="12" cy="8" r="3.6"/><path d="M5 20c.8-3.6 3.5-5.5 7-5.5s6.2 1.9 7 5.5"/></symbol>
+    <symbol id="icon-book" viewBox="0 0 24 24"><path d="M4.5 5.5h6.2c1.3 0 2.3 1 2.3 2.3v12c0-1.3-1-2.3-2.3-2.3H4.5zM19.5 5.5h-6.2c-1.3 0-2.3 1-2.3 2.3v12c0-1.3 1-2.3 2.3-2.3h6.2z"/></symbol>
+    <symbol id="icon-more" viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.7" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1.7" fill="currentColor" stroke="none"/><circle cx="19" cy="12" r="1.7" fill="currentColor" stroke="none"/></symbol>
+    <symbol id="icon-check" viewBox="0 0 24 24"><path d="m5 12.5 4.5 4.5L19 7"/></symbol>
+    <symbol id="icon-alert" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.7"/><path d="M12 7.5v5.2"/><circle cx="12" cy="16.4" r=".9" fill="currentColor" stroke="none"/></symbol>
+    <symbol id="icon-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.7"/><path d="M12 11v5.4"/><circle cx="12" cy="7.8" r=".9" fill="currentColor" stroke="none"/></symbol>
+    <symbol id="icon-wifi-off" viewBox="0 0 24 24"><path d="M3 3l18 18M8.7 15.8a4.8 4.8 0 0 1 6.6.1M5.4 12.2a10.5 10.5 0 0 1 4.1-2.4M14.6 9.8a10.5 10.5 0 0 1 4 2.4M2.5 8.7a15.5 15.5 0 0 1 3.9-2.3M13.4 5.4a15.5 15.5 0 0 1 8.1 3.3"/><circle cx="12" cy="19" r="1" fill="currentColor" stroke="none"/></symbol>
+    <symbol id="icon-arrow-right" viewBox="0 0 24 24"><path d="M5 12h14M12.8 5.8 19 12l-6.2 6.2"/></symbol>
+  </svg>
+
+  <div id="app" class="app">
+    <header class="app-header">
+      <a class="brand" href="#" aria-label="墨阅 MOREAD 首页">
+        <span class="brand-mark" aria-hidden="true">
+          <svg viewBox="0 0 40 40"><path d="M10 9.5h8.2c2.6 0 4.3 1.7 4.3 4.3v17.7c0-2.6-1.7-4.3-4.3-4.3H10z" fill="currentColor" opacity=".93"/><path d="M22.5 13.8c0-2.6 1.7-4.3 4.3-4.3H30v17.7h-3.2c-2.6 0-4.3 1.7-4.3 4.3z" fill="currentColor" opacity=".58"/><path d="M13 14.5h5M13 19h5" stroke="#f5efe3" stroke-width="1.4" stroke-linecap="round"/><circle cx="27" cy="16" r="2.4" fill="#d89a5b"/></svg>
+        </span>
+        <span class="brand-text"><strong>墨阅</strong><em>MOREAD</em></span>
+      </a>
+      <div class="app-actions">
+        <button class="icon-btn header-icon-btn" id="helpButton" type="button" title="快捷键与帮助" aria-label="快捷键与帮助">
+          <svg class="icon"><use href="#icon-help"></use></svg>
+        </button>
+        <button class="icon-btn header-icon-btn" id="installBtn" type="button" title="安装到桌面" aria-label="安装到桌面" hidden>
+          <svg class="icon"><use href="#icon-download"></use></svg>
+        </button>
+        <button class="sync-button" id="syncButton" type="button" title="云端同步">
+          <span class="sync-dot" aria-hidden="true"></span>
+          <svg class="icon"><use href="#icon-cloud"></use></svg>
+          <span id="syncButtonLabel">登录同步</span>
+        </button>
+        <button class="button-primary header-import" id="importButton" type="button">
+          <svg class="icon"><use href="#icon-plus"></use></svg>
+          <span>导入</span>
+        </button>
+      </div>
+    </header>
+
+    <main class="library-main" id="libraryView">
+      <section class="library-hero">
+        <div class="hero-copy">
+          <p class="eyebrow">PRIVATE READING SPACE</p>
+          <h1>我的书架<span class="title-dot">.</span></h1>
+          <p class="hero-sub" id="libraryStats">正在整理书架…</p>
+          <p class="hero-desc">把喧嚣留在书外，读一页自己的世界。</p>
+        </div>
+        <button class="continue-card" id="continueCard" type="button" hidden>
+          <span class="continue-cover" id="continueCover"></span>
+          <span class="continue-info">
+            <span class="continue-eyebrow">CONTINUE READING</span>
+            <strong id="continueTitle"></strong>
+            <span class="continue-meta" id="continueMeta"></span>
+            <span class="continue-progress"><span id="continueProgressFill"></span></span>
+          </span>
+          <span class="continue-arrow" aria-hidden="true">
+            <svg class="icon"><use href="#icon-arrow-right"></use></svg>
+          </span>
+        </button>
+      </section>
+
+      <section class="library-toolbar">
+        <label class="library-search">
+          <svg class="icon"><use href="#icon-search"></use></svg>
+          <input id="librarySearch" type="search" placeholder="搜索书名或作者" autocomplete="off" spellcheck="false" aria-label="搜索书架">
+          <kbd>/</kbd>
+        </label>
+        <div class="filter-chips" id="filterChips" role="group" aria-label="筛选书籍">
+          <button type="button" class="filter-chip is-active" data-filter="all">全部</button>
+          <button type="button" class="filter-chip" data-filter="reading">在读</button>
+          <button type="button" class="filter-chip" data-filter="unread">未读</button>
+          <button type="button" class="filter-chip" data-filter="finished">读完</button>
+        </div>
+        <label class="sort-control">
+          <span>排序</span>
+          <select id="librarySort" aria-label="书架排序">
+            <option value="recent">最近阅读</option>
+            <option value="added">最近加入</option>
+            <option value="title">书名</option>
+          </select>
+        </label>
+      </section>
+
+      <section class="book-grid" id="bookGrid" aria-live="polite"></section>
+
+      <p class="no-results" id="noResults" hidden>没有找到匹配的书。<button type="button" class="text-button" id="clearFilters">清除筛选</button></p>
+
+      <section class="empty-library" id="emptyLibrary" hidden>
+        <div class="empty-illustration" aria-hidden="true">
+          <svg viewBox="0 0 240 160">
+            <ellipse cx="120" cy="140" rx="88" ry="9" fill="currentColor" opacity=".07"/>
+            <rect x="46" y="58" width="118" height="70" rx="5" fill="var(--empty-shelf)" stroke="var(--empty-line)"/>
+            <rect x="58" y="72" width="19" height="46" rx="2" fill="#b2734f"/>
+            <rect x="81" y="64" width="23" height="54" rx="2" fill="#617b63"/>
+            <rect x="108" y="76" width="17" height="42" rx="2" fill="#c8a66a"/>
+            <rect x="129" y="69" width="25" height="49" rx="2" fill="#354c45"/>
+            <path d="M62 80h11M85 71h15M133 77h17" stroke="#f6f1e7" stroke-width="1.2" opacity=".7" stroke-linecap="round"/>
+            <rect x="50" y="118" width="118" height="7" rx="2" fill="var(--empty-line)"/>
+            <path d="M180 53c0-8 6-13 13-13v40c-7 0-13-5-13-13z" fill="#9a5a34" opacity=".55"/>
+            <circle cx="193" cy="40" r="5" fill="#d7a35f"/>
+            <path d="M188 45c-4 1-7 4-7 8" stroke="var(--empty-line)" stroke-width="1.3" fill="none" stroke-linecap="round"/>
+          </svg>
+        </div>
+        <p class="eyebrow">YOUR FIRST BOOK</p>
+        <h2>书架还空着</h2>
+        <p>导入一本 EPUB 或 TXT，墨阅会自动识别章节、记住你读到哪里。也可以先翻开一本内置的小书试试。</p>
+        <div class="empty-actions">
+          <button type="button" class="button-primary" id="emptyImportBtn">
+            <svg class="icon"><use href="#icon-plus"></use></svg>导入书籍
+          </button>
+          <button type="button" class="button-ghost" id="sampleBtn">读一读示例书</button>
+        </div>
+        <p class="empty-formats">支持 EPUB · TXT · HTML · Markdown　|　可离线使用</p>
+      </section>
+
+      <footer class="library-footer">
+        <span>墨阅 Moread · 本地优先 · 云端同步 · 离线可读</span>
+        <button type="button" class="footer-link" id="footerHelp">快捷键与帮助</button>
+      </footer>
+    </main>
+  </div>
+
+  <!-- ============================== READER ============================== -->
+  <section class="reader" id="readerView" hidden aria-hidden="true" aria-label="阅读器">
+    <div class="reader-surface"></div>
+    <header class="reader-top chrome" id="readerTop">
+      <div class="reader-top-left">
+        <button type="button" class="icon-btn" id="readerBack" title="返回书架 (Esc)" aria-label="返回书架">
+          <svg class="icon"><use href="#icon-arrow-left"></use></svg>
+        </button>
+        <div class="reader-titles">
+          <span class="reader-book-title" id="readerBookTitle"></span>
+          <span class="reader-chapter-title" id="readerChapterLabel" aria-live="polite"></span>
+        </div>
+      </div>
+      <div class="reader-actions">
+        <button type="button" class="icon-btn" id="readerSearchBtn" title="全书搜索 (/)" aria-label="全书搜索" aria-controls="searchOverlay" aria-expanded="false">
+          <svg class="icon"><use href="#icon-search"></use></svg>
+        </button>
+        <button type="button" class="icon-btn" id="readerBookmarkBtn" title="添加书签 (B)" aria-label="添加书签" aria-pressed="false">
+          <svg class="icon"><use href="#icon-bookmark"></use></svg>
+        </button>
+        <button type="button" class="icon-btn" id="readerTocBtn" title="目录 (T)" aria-label="目录" aria-controls="tocPanel" aria-expanded="false">
+          <svg class="icon"><use href="#icon-list"></use></svg>
+        </button>
+        <button type="button" class="icon-btn text-icon" id="readerSettingsBtn" title="显示设置 (D)" aria-label="显示设置" aria-controls="settingsPanel" aria-expanded="false">Aa</button>
+        <button type="button" class="icon-btn desktop-only" id="readerFullscreenBtn" title="全屏 (F)" aria-label="全屏">
+          <svg class="icon"><use href="#icon-fullscreen"></use></svg>
+        </button>
+      </div>
+    </header>
+
+    <div class="reader-viewport" id="readerViewport" role="region" aria-label="阅读区" tabindex="0">
+      <div class="reader-page" id="readerPage">
+        <article class="reader-content" id="readerContent"></article>
+        <div class="chapter-end" id="chapterEnd" hidden>
+          <span class="chapter-end-rule" aria-hidden="true"></span>
+          <p>本章结束</p>
+          <button type="button" class="button-ghost" id="chapterEndNext">继续下一章</button>
+        </div>
+      </div>
+      <button type="button" class="page-edge page-edge-left" id="pagePrev" title="上一页" aria-label="上一页">
+        <svg class="icon"><use href="#icon-chevron-left"></use></svg>
+      </button>
+      <button type="button" class="page-edge page-edge-right" id="pageNext" title="下一页" aria-label="下一页">
+        <svg class="icon"><use href="#icon-chevron-right"></use></svg>
+      </button>
+      <div class="reader-loading" id="readerLoading" aria-hidden="true">
+        <span class="spinner" aria-hidden="true"></span>
+        <span id="readerLoadingText">正在加载…</span>
+      </div>
+      <button type="button" class="reader-hidden-hint" id="readerHiddenHint" aria-hidden="true" tabindex="-1">
+        <svg class="icon"><use href="#icon-chevron-down"></use></svg>
+        <span>显示工具栏</span>
+      </button>
+    </div>
+
+    <footer class="reader-bottom chrome" id="readerBottom">
+      <button type="button" class="reader-bottom-btn" id="readerTocBottom" title="目录 (T)" aria-controls="tocPanel" aria-expanded="false">
+        <svg class="icon"><use href="#icon-list"></use></svg><span>目录</span>
+      </button>
+      <div class="reader-progress-area">
+        <div class="reader-progress-track"><span id="readerProgressFill"></span></div>
+        <div class="reader-progress-labels">
+          <span id="readerPageLabel">0 / 0</span>
+          <span id="readerPercent">0%</span>
+        </div>
+      </div>
+      <button type="button" class="reader-bottom-btn" id="readerSettingsBottom" title="显示设置 (D)" aria-controls="settingsPanel" aria-expanded="false">
+        <span class="aa-mini">Aa</span><span>显示</span>
+      </button>
+    </footer>
+
+    <div class="panel-scrim" id="panelScrim"></div>
+
+    <aside class="reader-panel toc-panel" id="tocPanel" tabindex="-1" aria-hidden="true" aria-label="目录与书签">
+      <header class="panel-header">
+        <div>
+          <p class="panel-eyebrow">CONTENTS</p>
+          <h2>目录</h2>
+        </div>
+        <button type="button" class="icon-btn" data-close-panel title="关闭" aria-label="关闭目录">
+          <svg class="icon"><use href="#icon-close"></use></svg>
+        </button>
+      </header>
+      <div class="panel-tabs" id="tocTabs" role="tablist">
+        <button type="button" class="is-active" data-panel-tab="toc" role="tab" aria-selected="true">目录</button>
+        <button type="button" data-panel-tab="bookmarks" role="tab" aria-selected="false">书签</button>
+      </div>
+      <div class="panel-filter" id="tocFilterRow">
+        <svg class="icon"><use href="#icon-search"></use></svg>
+        <input id="tocFilter" type="search" placeholder="搜索章节…" autocomplete="off" aria-label="搜索章节">
+      </div>
+      <button type="button" class="panel-add-bookmark" id="bookmarkAddBtn" hidden>
+        <svg class="icon"><use href="#icon-bookmark"></use></svg>
+        在当前位置添加书签
+      </button>
+      <div class="panel-list" id="tocList"></div>
+      <div class="panel-list" id="bookmarkList" hidden></div>
+      <footer class="panel-footer" id="tocFooter">共 0 章</footer>
+    </aside>
+
+    <aside class="reader-panel settings-panel" id="settingsPanel" tabindex="-1" aria-hidden="true" aria-label="显示设置">
+      <header class="panel-header">
+        <div>
+          <p class="panel-eyebrow">READING</p>
+          <h2>显示</h2>
+        </div>
+        <button type="button" class="icon-btn" data-close-panel title="关闭" aria-label="关闭设置">
+          <svg class="icon"><use href="#icon-close"></use></svg>
+        </button>
+      </header>
+      <div class="settings-scroll">
+        <section class="setting-group">
+          <div class="setting-heading"><span>主题</span><span class="setting-hint">背景与文字颜色</span></div>
+          <div class="theme-grid" id="themeGrid"></div>
+          <div class="custom-colors">
+            <label>背景色<input type="color" id="customBgInput" aria-label="自定义背景颜色"></label>
+            <label>文字色<input type="color" id="customTextInput" aria-label="自定义文字颜色"></label>
+          </div>
+        </section>
+
+        <section class="setting-group">
+          <div class="setting-heading"><span>字体</span><span class="setting-hint">使用系统已安装字体</span></div>
+          <div class="font-grid" id="fontGrid"></div>
+        </section>
+
+        <section class="setting-group compact">
+          <div class="setting-row">
+            <label for="fontSizeRange">字号</label>
+            <div class="range-with-stepper">
+              <button type="button" id="fontSizeMinus" class="step-btn" aria-label="减小字号">A−</button>
+              <input type="range" id="fontSizeRange" data-range="fontSize" min="14" max="34" step="1" aria-label="字号">
+              <button type="button" id="fontSizePlus" class="step-btn" aria-label="增大字号">A+</button>
+              <output id="fontSizeValue">19 px</output>
+            </div>
+          </div>
+          <div class="setting-row">
+            <label for="lineHeightRange">行距</label>
+            <div class="range-row">
+              <input type="range" id="lineHeightRange" data-range="lineHeight" min="1.3" max="2.6" step="0.1">
+              <output id="lineHeightValue">1.9</output>
+            </div>
+          </div>
+          <div class="setting-row">
+            <label for="letterSpacingRange">字距</label>
+            <div class="range-row">
+              <input type="range" id="letterSpacingRange" data-range="letterSpacing" min="-0.5" max="3" step="0.1">
+              <output id="letterSpacingValue">0.0 px</output>
+            </div>
+          </div>
+          <div class="setting-row">
+            <label for="paragraphSpacingRange">段距</label>
+            <div class="range-row">
+              <input type="range" id="paragraphSpacingRange" data-range="paragraphSpacing" min="0" max="2" step="0.1">
+              <output id="paragraphSpacingValue">0.8 ×</output>
+            </div>
+          </div>
+        </section>
+
+        <section class="setting-group compact">
+          <div class="setting-row">
+            <label for="pagePadRange">页边距</label>
+            <div class="range-row">
+              <input type="range" id="pagePadRange" data-range="pagePad" min="16" max="96" step="2">
+              <output id="pagePadValue">44 px</output>
+            </div>
+          </div>
+          <div class="setting-row" id="maxWidthRow" hidden>
+            <label for="maxWidthRange">版心宽度</label>
+            <div class="range-row">
+              <input type="range" id="maxWidthRange" data-range="maxWidth" min="560" max="1100" step="20">
+              <output id="maxWidthValue">760 px</output>
+            </div>
+          </div>
+        </section>
+
+        <section class="setting-group compact">
+          <div class="setting-row mode-row">
+            <span>翻页方式</span>
+            <div class="segmented">
+              <button type="button" id="modePaged" data-mode="paged" aria-pressed="true">左右翻页</button>
+              <button type="button" id="modeScroll" data-mode="scroll" aria-pressed="false">上下滚动</button>
+            </div>
+          </div>
+          <button type="button" class="toggle-row" id="toggleIndent" data-toggle="textIndent" role="switch" aria-checked="true">
+            <span><strong>首行缩进</strong><small>给每个段落一点呼吸</small></span>
+            <span class="switch-track" aria-hidden="true"><span></span></span>
+          </button>
+          <button type="button" class="toggle-row" id="toggleJustify" data-toggle="justify" role="switch" aria-checked="true">
+            <span><strong>两端对齐</strong><small>让文字边缘更整齐</small></span>
+            <span class="switch-track" aria-hidden="true"><span></span></span>
+          </button>
+          <button type="button" class="toggle-row" id="toggleAnimation" data-toggle="pageAnimation" role="switch" aria-checked="true">
+            <span><strong>翻页动画</strong><small>轻一点的页面过渡</small></span>
+            <span class="switch-track" aria-hidden="true"><span></span></span>
+          </button>
+        </section>
+
+        <section class="settings-links">
+          <button type="button" class="text-button" id="readerHelpBtn">快捷键与使用提示　<span class="key-hint">?</span></button>
+          <button type="button" class="text-button danger-text" id="resetAppearance">恢复默认排版</button>
+        </section>
+      </div>
+    </aside>
+
+    <section class="search-overlay" id="searchOverlay" hidden aria-hidden="true">
+      <div class="search-card" role="dialog" aria-modal="true" aria-labelledby="searchTitle">
+        <header class="search-header">
+          <div class="search-title-row">
+            <h2 id="searchTitle">全书搜索</h2>
+            <button type="button" class="icon-btn" id="searchClose" title="关闭" aria-label="关闭搜索">
+              <svg class="icon"><use href="#icon-close"></use></svg>
+            </button>
+          </div>
+          <div class="search-input-wrap">
+            <svg class="icon"><use href="#icon-search"></use></svg>
+            <input id="searchInput" type="search" placeholder="输入关键词，搜索整本书…" autocomplete="off" spellcheck="false" aria-label="搜索全书">
+            <button type="button" id="searchClear" class="search-clear">清除</button>
+          </div>
+          <p class="search-status" id="searchStatus">全书搜索</p>
+        </header>
+        <div class="search-results" id="searchResults"></div>
+      </div>
+    </section>
+  </section>
+
+  <div class="drop-overlay" id="dropOverlay" hidden>
+    <div class="drop-card">
+      <svg class="icon drop-icon"><use href="#icon-download"></use></svg>
+      <h2>松手，加入书架</h2>
+      <p>支持 EPUB · TXT · HTML · Markdown</p>
+    </div>
+  </div>
+
+  <div class="import-overlay" id="importOverlay" hidden role="status" aria-live="polite">
+    <div class="import-card">
+      <div class="import-icon"><svg class="icon"><use href="#icon-book"></use></svg></div>
+      <p class="eyebrow">BUILDING YOUR SHELF</p>
+      <h2 id="importTitle">正在导入</h2>
+      <p id="importMessage">正在读取文件…</p>
+      <div class="import-track"><span id="importProgressFill"></span></div>
+      <p class="import-hint" id="importHint"></p>
+    </div>
+  </div>
+
+  <input type="file" id="fileInput" accept=".epub,.txt,.text,.md,.markdown,.html,.htm,.xhtml,application/epub+zip,text/plain,text/html,text/markdown" multiple hidden>
+
+  <!-- ============================== DIALOGS ============================== -->
+  <dialog class="modal sync-dialog" id="syncDialog" aria-labelledby="syncTitle">
+    <div class="modal-card sync-card">
+      <header class="modal-header">
+        <div>
+          <p class="modal-eyebrow">CLOUD SYNC</p>
+          <h2 id="syncTitle">云同步</h2>
+        </div>
+        <button type="button" class="icon-btn" data-close-dialog aria-label="关闭云同步">
+          <svg class="icon"><use href="#icon-close"></use></svg>
+        </button>
+      </header>
+
+      <div class="server-banner">
+        <span class="server-dot" id="syncServerDot" aria-hidden="true"></span>
+        <span id="syncServerStatus">正在检测同步服务…</span>
+        <button type="button" class="text-button" id="syncRecheck">重新检测</button>
+      </div>
+
+      <section class="sync-logged-out" id="syncLoggedOut">
+        <p class="sync-intro">登录后，阅读进度和排版设置会在你的设备之间自动同步。书籍文件始终留在本机。</p>
+        <div class="auth-tabs" role="tablist" aria-label="登录或注册">
+          <button type="button" class="is-active" data-auth-mode="login" role="tab" aria-selected="true">登录</button>
+          <button type="button" data-auth-mode="register" role="tab" aria-selected="false">创建账号</button>
+        </div>
+
+        <form class="auth-form" id="syncAuthForm" novalidate>
+          <label class="field">
+            <span>用户名</span>
+            <input id="syncUsername" name="username" type="text" autocomplete="username" placeholder="2–24 个字符" maxlength="24" spellcheck="false">
+          </label>
+          <label class="field">
+            <span>密码</span>
+            <input id="syncPassword" name="password" type="password" autocomplete="current-password" placeholder="至少 6 位" maxlength="128">
+          </label>
+          <label class="field" id="syncConfirmRow" hidden>
+            <span>确认密码</span>
+            <input id="syncConfirm" name="confirm" type="password" autocomplete="new-password" placeholder="再输入一次密码" maxlength="128">
+          </label>
+          <p class="form-error" id="syncAuthError" role="alert" hidden></p>
+          <button type="submit" class="button-primary auth-submit" id="syncAuthSubmit">
+            <span id="syncAuthSubmitLabel">登录</span>
+          </button>
+        </form>
+
+        <div class="sync-server-config">
+          <p class="config-title">同步服务器</p>
+          <div class="server-input-row">
+            <input id="syncServerInput" type="url" inputmode="url" autocomplete="url" placeholder="https://read.example.com" spellcheck="false" aria-label="同步服务器地址">
+            <button type="button" class="button-ghost" id="syncServerSave">保存</button>
+          </div>
+          <p class="config-hint">默认使用当前站点。也可以填写自己部署的 Moread 同步服务地址。</p>
+        </div>
+
+        <p class="sync-privacy">
+          <svg class="icon"><use href="#icon-cloud"></use></svg>
+          账号仅用于同步阅读进度与阅读设置；不会上传书籍文件，也不会读取你的书架内容。
+        </p>
+      </section>
+
+      <section class="sync-logged-in" id="syncLoggedIn" hidden>
+        <div class="account-card">
+          <span class="sync-avatar" id="syncAvatar">墨</span>
+          <div class="account-copy">
+            <strong id="syncUsernameLabel">阅读者</strong>
+            <p id="syncAccountServer">localhost</p>
+          </div>
+          <span class="account-badge">已连接</span>
+        </div>
+
+        <div class="sync-facts">
+          <div>
+            <span>上次同步</span>
+            <strong id="syncLastAt">从未同步</strong>
+          </div>
+          <div>
+            <span>已纳入同步</span>
+            <strong id="syncBookCount">0 本阅读进度</strong>
+          </div>
+        </div>
+
+        <button type="button" class="toggle-row sync-auto-toggle" id="syncAutoToggle" role="switch" aria-checked="true">
+          <span><strong>自动同步</strong><small>阅读位置变化后，在后台悄悄上传并合并进度</small></span>
+          <span class="switch-track" aria-hidden="true"><span></span></span>
+        </button>
+
+        <p class="form-error" id="syncAccountError" role="alert" hidden></p>
+
+        <div class="sync-account-actions">
+          <button type="button" class="button-primary" id="syncNowBtn">立即同步</button>
+          <button type="button" class="text-button danger-text" id="syncLogoutBtn">退出登录</button>
+        </div>
+
+        <p class="sync-privacy">
+          <svg class="icon"><use href="#icon-check"></use></svg>
+          每本文档按内容指纹匹配，换设备后先导入同一本书，进度会自动接上。
+        </p>
+      </section>
+    </div>
+  </dialog>
+
+  <dialog class="modal book-dialog" id="bookDialog" aria-labelledby="bookDialogTitle">
+    <div class="modal-card book-dialog-card">
+      <button type="button" class="icon-btn modal-corner-close" data-close-dialog aria-label="关闭书籍详情">
+        <svg class="icon"><use href="#icon-close"></use></svg>
+      </button>
+      <div class="book-dialog-main">
+        <div class="book-dialog-cover" id="bookDialogCover"></div>
+        <div class="book-dialog-copy">
+          <p class="modal-eyebrow">BOOK DETAILS</p>
+          <h2 id="bookDialogTitle">书名</h2>
+          <p class="book-dialog-author" id="bookDialogAuthor">作者</p>
+          <div class="book-dialog-meta" id="bookDialogMeta"></div>
+          <div class="book-progress-card">
+            <p id="bookDialogProgressText">还没有读过这本书</p>
+            <div class="book-progress-track"><span id="bookDialogProgressFill"></span></div>
+          </div>
+          <div class="book-dialog-actions">
+            <button type="button" class="button-primary" id="bookDialogContinue">开始阅读</button>
+            <button type="button" class="button-ghost" id="bookDialogRestart" hidden>从头开始</button>
+            <button type="button" class="text-button danger-text book-delete-link" id="bookDialogDelete">删除书籍</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </dialog>
+
+  <dialog class="modal help-dialog" id="helpDialog" aria-labelledby="helpTitle">
+    <div class="modal-card help-card">
+      <header class="modal-header">
+        <div>
+          <p class="modal-eyebrow">GUIDE &amp; SHORTCUTS</p>
+          <h2 id="helpTitle">快捷键与使用提示</h2>
+        </div>
+        <button type="button" class="icon-btn" data-close-dialog aria-label="关闭帮助">
+          <svg class="icon"><use href="#icon-close"></use></svg>
+        </button>
+      </header>
+
+      <div class="help-scroll">
+        <section class="help-section">
+          <h3>阅读快捷键</h3>
+          <div class="shortcut-grid">
+            <div><span>上一页 / 下一页</span><span class="keys"><kbd>←</kbd><kbd>→</kbd><kbd>空格</kbd></span></div>
+            <div><span>目录</span><span class="keys"><kbd>T</kbd></span></div>
+            <div><span>显示设置</span><span class="keys"><kbd>D</kbd></span></div>
+            <div><span>全书搜索</span><span class="keys"><kbd>/</kbd><kbd>Ctrl</kbd><kbd>F</kbd></span></div>
+            <div><span>添加 / 移除书签</span><span class="keys"><kbd>B</kbd></span></div>
+            <div><span>全屏 / 沉浸阅读</span><span class="keys"><kbd>F</kbd><kbd>H</kbd></span></div>
+            <div><span>字号变大 / 变小</span><span class="keys"><kbd>+</kbd><kbd>−</kbd></span></div>
+            <div><span>返回书架</span><span class="keys"><kbd>Esc</kbd></span></div>
+          </div>
+          <p class="help-note"><kbd>Shift</kbd> + <kbd>/</kbd> 也可以在阅读时打开这份帮助。</p>
+        </section>
+
+        <section class="help-section">
+          <h3>在手机上</h3>
+          <ul class="help-list">
+            <li>左右轻扫翻页；点击页面左侧或右侧也可以翻页。</li>
+            <li>轻点页面中央显示或隐藏工具栏。</li>
+            <li>两指向外捏合不会缩放排版——请用“显示”面板调整字号，排版会保持清晰。</li>
+          </ul>
+        </section>
+
+        <section class="help-section">
+          <h3>书架与同步</h3>
+          <ul class="help-list">
+            <li>支持导入 EPUB、TXT、HTML、Markdown，TXT 会自动识别“第 N 章”“Chapter N”等章节标题。</li>
+            <li>阅读进度会自动保存在本机；在“云同步”中登录后可在多台设备之间接续阅读。</li>
+            <li>云端按文件内容指纹匹配书籍。换设备后先导入同一本书，再同步即可恢复进度。</li>
+            <li>阅读设置也在同步范围内，包括主题、字体、字号、行距和翻页方式。</li>
+          </ul>
+        </section>
+
+        <section class="help-section">
+          <h3>离线与安装</h3>
+          <ul class="help-list">
+            <li>书架和已导入书籍保存在浏览器本地数据库中，断网也能继续阅读。</li>
+            <li>用 Chrome / Edge 打开时，可从地址栏或页头“安装”按钮把墨阅装到桌面。</li>
+            <li>清理浏览器站点数据会同时删除本地书架，重要书籍请保留原文件。</li>
+          </ul>
+        </section>
+
+        <footer class="help-footer">
+          <span>墨阅 Moread</span>
+          <span>本地优先的私人阅读空间</span>
+        </footer>
+      </div>
+    </div>
+  </dialog>
+
+  <script type="module" src="./js/app.js"></script>
+</body>
+</html>

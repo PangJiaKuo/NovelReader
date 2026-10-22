@@ -1,0 +1,132 @@
+name: Build Android APK
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: android-apk-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Set up Java 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK packages
+        run: |
+          yes | sdkmanager --licenses >/dev/null 2>&1 || true
+          sdkmanager --install "platform-tools" "platforms;android-36" "build-tools;36.0.0" "build-tools;35.0.0"
+
+      - name: Install Capacitor
+        run: |
+          npm install @capacitor/core@8.5.3 @capacitor/android@8.5.3
+          npm install --save-dev @capacitor/cli@8.5.3
+
+      - name: Prepare bundled web assets
+        run: |
+          rm -rf www android
+          mkdir -p www
+          cp index.html manifest.webmanifest favicon.svg www/
+          cp -R assets js icons www/
+
+          # The Android shell already bundles the files. Keep a no-op worker so the
+          # web app's registration call does not log a 404 inside the WebView.
+          cat > www/sw.js <<'EOF'
+          self.addEventListener('install', () => self.skipWaiting());
+          self.addEventListener('activate', (event) => event.waitUntil(self.clients.claim()));
+          EOF
+
+          cat > capacitor.config.json <<'EOF'
+          {
+            "appId": "com.moread.reader",
+            "appName": "墨阅",
+            "webDir": "www",
+            "server": {
+              "androidScheme": "https",
+              "cleartext": true
+            },
+            "android": {
+              "allowMixedContent": true
+            }
+          }
+          EOF
+
+      - name: Create Android project
+        run: npx cap add android
+
+      - name: Configure network access and app icon
+        run: |
+          # Allow self-hosted sync servers on a LAN over http://.
+          # Remove this line if you only use an HTTPS server.
+          sed -i 's|<application|<application android:usesCleartextTraffic="true"|' \
+            android/app/src/main/AndroidManifest.xml
+
+          # Reuse the PWA artwork for the Android launcher.
+          for density in mdpi hdpi xhdpi xxhdpi xxxhdpi; do
+            cp icons/icon-192.png "android/app/src/main/res/mipmap-${density}/ic_launcher.png"
+            cp icons/icon-192.png "android/app/src/main/res/mipmap-${density}/ic_launcher_round.png"
+            cp icons/icon-512.png "android/app/src/main/res/mipmap-${density}/ic_launcher_foreground.png"
+          done
+          sed -i 's|<color name="ic_launcher_background">.*</color>|<color name="ic_launcher_background">#1F3A32</color>|' \
+            android/app/src/main/res/values/ic_launcher_background.xml
+
+      - name: Set APK version
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          sed -i "s/versionCode 1/versionCode ${GITHUB_RUN_NUMBER}/" android/app/build.gradle
+          sed -i "s/versionName \"1.0\"/versionName \"${VERSION}\"/" android/app/build.gradle
+
+      - name: Sync web assets
+        run: npx cap sync android
+
+      - name: Cache Android debug keystore
+        uses: actions/cache@v4
+        with:
+          path: ~/.android/debug.keystore
+          key: moread-debug-keystore-v1
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Build debug APK
+        working-directory: android
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleDebug --no-daemon --stacktrace
+
+      - name: Collect APK
+        run: |
+          mkdir -p dist
+          cp android/app/build/outputs/apk/debug/app-debug.apk "dist/moread-${GITHUB_RUN_NUMBER}.apk"
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: moread-apk-${{ github.run_number }}
+          path: dist/*.apk
+          if-no-files-found: error
+          retention-days: 30

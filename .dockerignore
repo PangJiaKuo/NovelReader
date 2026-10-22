@@ -1,0 +1,9 @@
+node_modules
+server/data
+tests
+.git
+.gitignore
+*.log
+*.tmp
+.DS_Store
+Thumbs.db

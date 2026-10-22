@@ -1,0 +1,50 @@
+{
+  "id": "./",
+  "name": "墨阅 Moread — 私人阅读空间",
+  "short_name": "墨阅",
+  "description": "本地优先的 EPUB / TXT 阅读器，支持自动章节目录、排版自定义与跨设备阅读进度同步。",
+  "lang": "zh-CN",
+  "dir": "ltr",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "display_override": ["window-controls-overlay", "standalone", "minimal-ui"],
+  "orientation": "any",
+  "background_color": "#f5efe3",
+  "theme_color": "#f5efe3",
+  "categories": ["books", "productivity", "lifestyle"],
+  "icons": [
+    {
+      "src": "./icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "./icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "./icons/maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    },
+    {
+      "src": "./icons/apple-touch-icon.png",
+      "sizes": "180x180",
+      "type": "image/png",
+      "purpose": "any"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "打开我的书架",
+      "short_name": "书架",
+      "description": "继续上次的阅读",
+      "url": "./"
+    }
+  ]
+}
