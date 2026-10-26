@@ -1212,9 +1212,12 @@ function initReader() {
 
 function setupNativeBackButton() {
   const capacitor = window.Capacitor;
-  if (!capacitor?.isNativePlatform?.() || typeof capacitor.registerPlugin !== 'function') return;
+  if (!capacitor) return;
+  if (typeof capacitor.isNativePlatform === 'function' && !capacitor.isNativePlatform()) return;
   try {
-    const App = capacitor.registerPlugin('App');
+    // The Android bridge injects Capacitor.Plugins.App without registerPlugin().
+    const App = capacitor.Plugins?.App
+      || (typeof capacitor.registerPlugin === 'function' ? capacitor.registerPlugin('App') : null);
     if (!App?.addListener) return;
     const ready = App.addListener('backButton', () => {
       const dialog = document.querySelector('dialog[open]');

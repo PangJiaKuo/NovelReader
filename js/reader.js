@@ -1874,7 +1874,7 @@ export class Reader {
     this.syncNarrationUI();
     this.syncTtsRateUI();
     if (!this.tts.supported) {
-      this.ttsVoicesError = '当前环境不支持系统语音朗读。';
+      this.ttsVoicesError = this.tts.unsupportedMessage;
       this.updateTtsVoiceUI();
       return;
     }
@@ -1887,7 +1887,7 @@ export class Reader {
 
   async loadTtsVoices(force = false) {
     if (!this.tts.supported) {
-      this.ttsVoicesError = '当前环境不支持系统语音朗读。';
+      this.ttsVoicesError = this.tts.unsupportedMessage;
       this.updateTtsVoiceUI();
       return null;
     }
@@ -1992,7 +1992,7 @@ export class Reader {
       if (this.ttsVoicesLoading) {
         text = '正在读取系统语音…';
       } else if (!this.tts.supported) {
-        text = '当前环境不支持系统语音朗读。';
+        text = this.tts.unsupportedMessage;
         error = true;
       } else if (this.ttsVoicesError) {
         text = this.ttsVoicesError;
@@ -2044,7 +2044,7 @@ export class Reader {
   async startNarration() {
     if (!this.isOpen || !this.book || !this.chapter || this.isLoading || this.narration.loading) return;
     if (!this.tts.supported) {
-      this.narration.error = '当前环境不支持系统语音朗读。';
+      this.narration.error = this.tts.unsupportedMessage;
       this.syncNarrationUI();
       toast(this.narration.error, { type: 'error' });
       return;

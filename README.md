@@ -45,6 +45,8 @@ npm start
 
 GitHub Actions 的「Build Android APK」工作流会在推送 `v*` 标签或手动触发时构建调试 APK，产物名为 `moread-apk-<run>`。APK 通过 Capacitor 打包前端，并使用 `@capacitor-community/text-to-speech` 调用 Android 系统语音引擎。
 
+听书使用的是手机自带的文字转语音引擎。如果听书面板提示未检测到引擎，请进入「设置 → 辅助功能 → 无障碍 → 文本转语音」启用或安装语音引擎后再试；PWA 需要浏览器支持 Web Speech，Android 手机建议直接安装 APK。
+
 ### 可选：Docker
 
 ```bash

@@ -122,6 +122,40 @@ test('SystemSpeech speaks through the native plugin with the selected voice inde
   }
 });
 
+test('SystemSpeech uses the plugin proxy injected by Capacitor Android', async () => {
+  let spoken = null;
+  const plugin = {
+    async getSupportedVoices() {
+      return { voices: [{ name: 'Chinese', lang: 'zh-CN', voiceURI: 'zh' }] };
+    },
+    speak(options) {
+      spoken = options;
+      return Promise.resolve();
+    },
+    stop() {
+      return Promise.resolve();
+    },
+  };
+  globalThis.window = {
+    Capacitor: {
+      isNativePlatform: () => true,
+      Plugins: { TextToSpeech: plugin },
+    },
+  };
+
+  try {
+    const speech = new SystemSpeech();
+    assert.equal(speech.kind, 'native');
+    await speech.loadVoices();
+    const result = await speech.speak('测试一句话。', { rate: 1, voiceURI: 'zh' });
+    assert.equal(result.status, 'done');
+    assert.equal(spoken.lang, 'zh-CN');
+    speech.dispose();
+  } finally {
+    delete globalThis.window;
+  }
+});
+
 test('SystemSpeech ignores an unavailable native plugin and uses the web engine', () => {
   let registered = false;
   class FakeUtterance {

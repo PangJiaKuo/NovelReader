@@ -272,16 +272,30 @@ export function voiceOptionLabel(voice, { duplicateCount = 1, ordinal = 1 } = {}
   return label;
 }
 
+function usablePlugin(plugin) {
+  return Boolean(plugin && typeof plugin.speak === 'function' && typeof plugin.stop === 'function');
+}
+
 function nativePlugin() {
   if (typeof window === 'undefined') return null;
   const capacitor = window.Capacitor;
-  if (!capacitor?.isNativePlatform?.() || typeof capacitor.registerPlugin !== 'function') return null;
-  if (typeof capacitor.isPluginAvailable === 'function' && !capacitor.isPluginAvailable('TextToSpeech')) return null;
-  try {
-    const plugin = capacitor.registerPlugin('TextToSpeech');
-    if (plugin && typeof plugin.speak === 'function' && typeof plugin.stop === 'function') return plugin;
-  } catch {
-    /* fall back to the Web Speech API */
+  if (!capacitor) return null;
+  if (typeof capacitor.isNativePlatform === 'function' && !capacitor.isNativePlatform()) return null;
+
+  // Capacitor's Android bridge injects callable proxies into Capacitor.Plugins
+  // before the page scripts run. It does not expose registerPlugin() unless
+  // @capacitor/core is packaged with the app, so check the injected proxy first.
+  const injected = capacitor.Plugins?.TextToSpeech;
+  if (usablePlugin(injected)) return injected;
+
+  if (typeof capacitor.registerPlugin === 'function') {
+    if (typeof capacitor.isPluginAvailable === 'function' && !capacitor.isPluginAvailable('TextToSpeech')) return null;
+    try {
+      const plugin = capacitor.registerPlugin('TextToSpeech');
+      if (usablePlugin(plugin)) return plugin;
+    } catch {
+      /* fall back to the Web Speech API */
+    }
   }
   return null;
 }
@@ -298,8 +312,13 @@ function wait(ms) {
 
 export function describeSpeechError(error) {
   const raw = String(error?.message || error?.error || error || '');
-  if (/not supported/i.test(raw)) return '系统语音引擎不支持当前语言，请在“音色”中选择其他语音。';
-  if (/not yet initialized|not available|unavailable/i.test(raw)) return '系统语音引擎尚未就绪，请稍后重试。';
+  if (/language.*not supported|not supported.*language/i.test(raw)) {
+    return '当前语音引擎不支持该语言。请安装中文语音包，或在“音色”中选择其他语音。';
+  }
+  if (/not yet initialized|not available|unavailable/i.test(raw)) {
+    return '系统语音引擎尚未就绪或不可用。请确认手机已启用“文字转语音”引擎后重试。';
+  }
+  if (/failed to read text/i.test(raw)) return '系统语音引擎朗读失败，请检查语音引擎和语音包是否正常。';
   if (/not-allowed|not allowed|user gesture/i.test(raw)) return '当前浏览器阻止了朗读，请再次点击播放。';
   if (/network/i.test(raw)) return '该音色需要网络，请选择离线音色或检查网络。';
   if (/interrupted|canceled|cancelled|aborted/i.test(raw)) return '朗读已停止。';
@@ -313,6 +332,7 @@ export function describeSpeechError(error) {
 export class SystemSpeech {
   constructor({ onVoicesChanged } = {}) {
     this.onVoicesChanged = onVoicesChanged || (() => {});
+    this.isNativeApp = typeof window !== 'undefined' && Boolean(window.Capacitor?.isNativePlatform?.());
     this.plugin = nativePlugin();
     this.kind = this.plugin ? 'native' : (hasWebSpeech() ? 'web' : 'none');
     this.voices = [];
@@ -352,9 +372,16 @@ export class SystemSpeech {
     return '系统语音引擎';
   }
 
+  get unsupportedMessage() {
+    if (this.isNativeApp) {
+      return '未检测到可用的系统语音引擎。请到“设置 → 辅助功能 → 无障碍 → 文本转语音”启用语音引擎后重试。';
+    }
+    return '当前浏览器不支持系统语音朗读。Android 手机请安装墨阅 APK，或改用 Chrome / Edge 浏览器。';
+  }
+
   async loadVoices({ force = false } = {}) {
     if (this.kind === 'none') {
-      this.voicesError = '当前环境不支持系统语音朗读。';
+      this.voicesError = this.unsupportedMessage;
       return { voices: [], error: this.voicesError };
     }
     if (this.voicesLoaded && !force) {
@@ -393,6 +420,12 @@ export class SystemSpeech {
       try {
         const result = await this.plugin.getSupportedVoices();
         const raw = Array.isArray(result?.voices) ? result.voices : [];
+        // Some Android engines return an empty list while initialization is still
+        // in progress. Give them a few short retries before accepting the default.
+        if (!raw.length && attempt < 2) {
+          await wait(260 + attempt * 180);
+          continue;
+        }
         this.voices = normalizeVoices(raw, { native: true });
         this.voicesLoaded = true;
         this.voicesError = raw.length ? '' : '系统语音引擎没有返回音色，将使用系统默认音色。';
@@ -440,9 +473,23 @@ export class SystemSpeech {
         cancel = () => resolve({ status: 'cancelled' });
         this.activeCancel = cancel;
       });
-      const done = this.plugin.speak(options)
-        .then(() => ({ status: 'done' }))
-        .catch((error) => ({ status: 'error', error }));
+      const done = (async () => {
+        let lastError = null;
+        for (let attempt = 0; attempt < 4; attempt += 1) {
+          if (request !== this.request) return { status: 'cancelled' };
+          try {
+            await this.plugin.speak(options);
+            return { status: 'done' };
+          } catch (error) {
+            lastError = error;
+            const message = String(error?.message || error || '');
+            const notReady = /not yet initialized|not available|unavailable/i.test(message);
+            if (!notReady || attempt === 3) break;
+            await wait(300 + attempt * 250);
+          }
+        }
+        return { status: 'error', error: lastError };
+      })();
       const result = await Promise.race([done, cancelled]);
       if (this.activeCancel === cancel) this.activeCancel = null;
       if (result.status !== 'cancelled' && request !== this.request) return { status: 'cancelled' };
