@@ -1222,7 +1222,10 @@ function setupNativeBackButton() {
         hideDialog(dialog);
         return;
       }
-      if (reader?.isOpen && reader.handleNativeBack()) return;
+      if (reader?.isOpen) {
+        reader.handleNativeBack();
+        return;
+      }
       Promise.resolve(App.minimizeApp?.()).catch(() => {});
     });
     Promise.resolve(ready).catch(() => {});

@@ -423,14 +423,15 @@ export class Reader {
       this.pushHistoryGuard();
       return;
     }
-    this.handleNativeBack();
-    this.pushHistoryGuard();
+    const staysOpen = this.handleNativeBack();
+    if (staysOpen && this.isOpen) this.pushHistoryGuard();
   }
 
   /*
    * Android's back gesture is normally consumed by the system before the page
-   * sees a touch event. Treat it as a reading action instead of letting the
-   * WebView finish the activity.
+   * sees a touch event. Keep it inside the app: close the TOC/search first,
+   * otherwise return to the bookshelf instead of finishing the activity.
+   * Returns true when the reader remains open.
    */
   handleNativeBack() {
     if (!this.isOpen || this.closing) return false;
@@ -442,8 +443,8 @@ export class Reader {
       this.closeSearch();
       return true;
     }
-    this.prevAction();
-    return true;
+    this.close();
+    return false;
   }
 
   /* ------------------------------ opening ------------------------------ */
