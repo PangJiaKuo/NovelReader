@@ -1,6 +1,6 @@
 {
   "name": "moread",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "private": true,
   "type": "module",
   "description": "墨阅 Moread — local-first EPUB/TXT reader PWA with optional cloud progress sync.",
@@ -10,7 +10,7 @@
   "scripts": {
     "start": "node server/server.js",
     "dev": "node server/server.js",
-    "check": "node --check js/app.js && node --check js/reader.js && node --check js/ui.js && node --check js/importer.js && node --check js/epub.js && node --check js/chapters.js && node --check js/store.js && node --check js/settings.js && node --check js/cloud.js && node --check js/util.js && node --check js/sample.js && node --check server/server.js && node --check sw.js",
+    "check": "node --check js/app.js && node --check js/reader.js && node --check js/tts.js && node --check js/ui.js && node --check js/importer.js && node --check js/epub.js && node --check js/chapters.js && node --check js/store.js && node --check js/settings.js && node --check js/cloud.js && node --check js/util.js && node --check js/sample.js && node --check server/server.js && node --check sw.js",
     "test": "node --test tests/*.test.js"
   },
   "keywords": [

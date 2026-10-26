@@ -28,6 +28,16 @@ import {
   uid,
 } from './util.js';
 import { confirmDialog, toast } from './ui.js';
+import {
+  buildNarrationScript,
+  clampSpeechRate,
+  describeSpeechError,
+  findVoice,
+  loadTtsPreferences,
+  saveTtsPreferences,
+  SystemSpeech,
+  voiceOptionLabel,
+} from './tts.js';
 
 const $ = (selector, root = document) => root.querySelector(selector);
 const $$ = (selector, root = document) => Array.from(root.querySelectorAll(selector));
@@ -81,6 +91,36 @@ export class Reader {
     this.completed = false;
     this.loadingTimer = null;
 
+    this.ttsPrefs = loadTtsPreferences();
+    this.ttsVoices = [];
+    this.ttsVoicesLoading = false;
+    this.ttsVoicesLoaded = false;
+    this.ttsVoicesError = '';
+    this.ttsVoicesPromise = null;
+    this.ttsHighlight = null;
+    this.narration = {
+      active: false,
+      playing: false,
+      loading: false,
+      token: 0,
+      chunks: [],
+      index: 0,
+      chapterIndex: 0,
+      chapterTitle: '',
+      error: '',
+    };
+    this.tts = new SystemSpeech({
+      onVoicesChanged: (voices) => {
+        if (!this.isOpen) return;
+        this.ttsVoices = Array.isArray(voices) ? voices : [];
+        this.ttsVoicesLoaded = this.ttsVoices.length > 0;
+        this.ttsVoicesLoading = false;
+        this.ttsVoicesError = '';
+        if (this.activePanel === 'listen') this.updateTtsVoiceUI();
+        this.syncNarrationUI();
+      },
+    });
+
     this.progressSaveDebounced = debounce(() => this.flushProgress(), 500);
     this.settingsSaveDebounced = debounce(() => {
       if (!this.isOpen) return;
@@ -123,12 +163,32 @@ export class Reader {
       tocBtnBottom: 'readerTocBottom',
       searchBtn: 'readerSearchBtn',
       bookmarkBtn: 'readerBookmarkBtn',
+      listenBtn: 'readerListenBtn',
       settingsBtn: 'readerSettingsBtn',
       settingsBtnBottom: 'readerSettingsBottom',
       fullscreenBtn: 'readerFullscreenBtn',
       tocPanel: 'tocPanel',
       settingsPanel: 'settingsPanel',
+      listenPanel: 'listenPanel',
       scrim: 'panelScrim',
+      ttsPlayBtn: 'ttsPlayBtn',
+      ttsStopBtn: 'ttsStopBtn',
+      ttsNowState: 'ttsNowState',
+      ttsNowProgress: 'ttsNowProgress',
+      ttsNowChapter: 'ttsNowChapter',
+      ttsNowSentence: 'ttsNowSentence',
+      ttsNowFill: 'ttsNowFill',
+      ttsVoiceSelect: 'ttsVoiceSelect',
+      ttsVoiceHint: 'ttsVoiceHint',
+      ttsVoiceRefresh: 'ttsVoiceRefresh',
+      ttsRateRange: 'ttsRateRange',
+      ttsRateValue: 'ttsRateValue',
+      ttsDock: 'ttsDock',
+      ttsDockStatus: 'ttsDockStatus',
+      ttsDockMeta: 'ttsDockMeta',
+      ttsDockToggle: 'ttsDockToggle',
+      ttsDockOpen: 'ttsDockOpen',
+      ttsDockStop: 'ttsDockStop',
       tocList: 'tocList',
       tocFilter: 'tocFilter',
       tocFilterRow: 'tocFilterRow',
@@ -232,7 +292,17 @@ export class Reader {
     dom.settingsBtnBottom?.addEventListener('click', () => this.togglePanel('settings'));
     dom.searchBtn?.addEventListener('click', () => this.openSearch());
     dom.bookmarkBtn?.addEventListener('click', () => this.toggleBookmark());
+    dom.listenBtn?.addEventListener('click', () => this.togglePanel('listen'));
     dom.fullscreenBtn?.addEventListener('click', () => this.toggleFullscreen());
+    dom.ttsPlayBtn?.addEventListener('click', () => this.toggleNarration());
+    dom.ttsStopBtn?.addEventListener('click', () => this.stopNarration());
+    dom.ttsDockToggle?.addEventListener('click', () => this.toggleNarration());
+    dom.ttsDockStop?.addEventListener('click', () => this.stopNarration());
+    dom.ttsDockOpen?.addEventListener('click', () => this.openPanel('listen'));
+    dom.ttsVoiceRefresh?.addEventListener('click', () => this.loadTtsVoices(true));
+    dom.ttsVoiceSelect?.addEventListener('change', () => this.handleTtsVoiceChange());
+    dom.ttsRateRange?.addEventListener('input', () => this.handleTtsRateChange(false));
+    dom.ttsRateRange?.addEventListener('change', () => this.handleTtsRateChange(true));
     dom.hiddenHint?.addEventListener('click', () => this.setChromeHidden(false));
     dom.scrim?.addEventListener('click', () => this.closePanels());
     dom.chapterEndNext?.addEventListener('click', () => this.goToChapter(this.chapterIndex + 1));
@@ -451,6 +521,10 @@ export class Reader {
 
   async open(book) {
     if (!book) return;
+    this.stopNarration({ silent: true });
+    this.ttsVoicesLoaded = false;
+    this.ttsVoicesError = '';
+    this.ttsVoices = [];
     this.isOpen = true;
     this.closing = false;
     this.historyGuard = false;
@@ -513,6 +587,7 @@ export class Reader {
     this.closePanels(true);
     this.closeSearch(true);
     this.setChromeHidden(false);
+    this.syncNarrationUI();
 
     const startChapter = clamp(Number(this.progress?.chapterIndex) || 0, 0, this.chapterCount - 1);
     const startRatio = this.restoreRatio(this.progress, startChapter);
@@ -527,6 +602,7 @@ export class Reader {
   async close() {
     if (!this.isOpen || this.closing) return;
     this.closing = true;
+    this.stopNarration({ silent: true });
     const dropHistoryEntry = this.historyGuard;
     this.historyGuard = false;
     this.settingsSaveDebounced.flush?.();
@@ -851,6 +927,7 @@ export class Reader {
   async goToChapter(index, options = {}) {
     if (!this.isOpen) return;
     if (!Number.isFinite(Number(index))) return;
+    if (!options.fromNarration) this.stopNarrationForNavigation();
     const target = clamp(Math.round(Number(index)), 0, this.chapterCount - 1);
     if (target === this.chapterIndex && this.chapter && !this.isLoading) {
       if (options.query) {
@@ -883,6 +960,7 @@ export class Reader {
 
   nextAction() {
     if (!this.isOpen || this.isLoading) return;
+    this.stopNarrationForNavigation();
     if (this.settings.mode === 'paged' && this.pageIndex < this.pageCount - 1) {
       this.setPage(this.pageIndex + 1, { animate: true });
       return;
@@ -902,6 +980,7 @@ export class Reader {
 
   prevAction() {
     if (!this.isOpen || this.isLoading) return;
+    this.stopNarrationForNavigation();
     if (this.settings.mode === 'paged' && this.pageIndex > 0) {
       this.setPage(this.pageIndex - 1, { animate: true });
       return;
@@ -1133,14 +1212,19 @@ export class Reader {
     this.activePanel = name;
     const toc = this.dom.tocPanel;
     const settings = this.dom.settingsPanel;
+    const listen = this.dom.listenPanel;
     toc?.classList.toggle('is-open', name === 'toc');
     settings?.classList.toggle('is-open', name === 'settings');
+    listen?.classList.toggle('is-open', name === 'listen');
     toc?.setAttribute('aria-hidden', String(name !== 'toc'));
     settings?.setAttribute('aria-hidden', String(name !== 'settings'));
+    listen?.setAttribute('aria-hidden', String(name !== 'listen'));
     this.dom.tocBtn?.setAttribute('aria-expanded', String(name === 'toc'));
     this.dom.tocBtnBottom?.setAttribute('aria-expanded', String(name === 'toc'));
     this.dom.settingsBtn?.setAttribute('aria-expanded', String(name === 'settings'));
     this.dom.settingsBtnBottom?.setAttribute('aria-expanded', String(name === 'settings'));
+    this.dom.listenBtn?.setAttribute('aria-expanded', String(name === 'listen'));
+    this.dom.ttsDockOpen?.setAttribute('aria-expanded', String(name === 'listen'));
     this.dom.scrim?.classList.add('is-visible');
     this.root.classList.add('panel-open');
     if (name === 'toc') {
@@ -1153,18 +1237,25 @@ export class Reader {
     } else if (name === 'settings') {
       this.syncAppearanceControls();
       requestAnimationFrame(() => settings?.focus({ preventScroll: true }));
+    } else if (name === 'listen') {
+      this.prepareListenPanel();
+      requestAnimationFrame(() => listen?.focus({ preventScroll: true }));
     }
   }
 
   closePanels(immediate = false) {
     this.dom.tocPanel?.classList.remove('is-open');
     this.dom.settingsPanel?.classList.remove('is-open');
+    this.dom.listenPanel?.classList.remove('is-open');
     this.dom.tocPanel?.setAttribute('aria-hidden', 'true');
     this.dom.settingsPanel?.setAttribute('aria-hidden', 'true');
+    this.dom.listenPanel?.setAttribute('aria-hidden', 'true');
     this.dom.tocBtn?.setAttribute('aria-expanded', 'false');
     this.dom.tocBtnBottom?.setAttribute('aria-expanded', 'false');
     this.dom.settingsBtn?.setAttribute('aria-expanded', 'false');
     this.dom.settingsBtnBottom?.setAttribute('aria-expanded', 'false');
+    this.dom.listenBtn?.setAttribute('aria-expanded', 'false');
+    this.dom.ttsDockOpen?.setAttribute('aria-expanded', 'false');
     this.dom.scrim?.classList.remove('is-visible');
     this.root.classList.remove('panel-open');
     this.activePanel = null;
@@ -1776,6 +1867,542 @@ export class Reader {
     return true;
   }
 
+  /* ------------------------------- narration ----------------------------- */
+
+  prepareListenPanel() {
+    if (!this.isOpen) return;
+    this.syncNarrationUI();
+    this.syncTtsRateUI();
+    if (!this.tts.supported) {
+      this.ttsVoicesError = '当前环境不支持系统语音朗读。';
+      this.updateTtsVoiceUI();
+      return;
+    }
+    if (!this.ttsVoicesLoaded || this.ttsVoicesError) {
+      this.loadTtsVoices();
+    } else {
+      this.updateTtsVoiceUI();
+    }
+  }
+
+  async loadTtsVoices(force = false) {
+    if (!this.tts.supported) {
+      this.ttsVoicesError = '当前环境不支持系统语音朗读。';
+      this.updateTtsVoiceUI();
+      return null;
+    }
+    if (this.ttsVoicesLoading) return this.ttsVoicesPromise;
+    this.ttsVoicesLoading = true;
+    this.updateTtsVoiceUI();
+    const task = (async () => {
+      try {
+        const result = await this.tts.loadVoices({ force });
+        if (this.isOpen) {
+          this.ttsVoices = Array.isArray(result?.voices) ? result.voices : [];
+          this.ttsVoicesLoaded = this.ttsVoices.length > 0;
+          this.ttsVoicesError = result?.error || '';
+          if (!this.ttsVoicesError && this.ttsPrefs.voiceURI && !findVoice(this.ttsVoices, this.ttsPrefs.voiceURI)) {
+            this.ttsPrefs = saveTtsPreferences({ voiceURI: '' });
+          }
+          this.updateTtsVoiceUI();
+          this.syncNarrationUI();
+        }
+        return result;
+      } catch (error) {
+        this.ttsVoicesLoaded = false;
+        this.ttsVoicesError = describeSpeechError(error);
+        return { voices: [], error: this.ttsVoicesError };
+      } finally {
+        this.ttsVoicesLoading = false;
+        this.ttsVoicesPromise = null;
+        if (this.isOpen) this.updateTtsVoiceUI();
+      }
+    })();
+    this.ttsVoicesPromise = task;
+    return task;
+  }
+
+  updateTtsVoiceUI() {
+    const select = this.dom.ttsVoiceSelect;
+    if (!select) return;
+    const selected = this.ttsPrefs.voiceURI;
+    select.replaceChildren();
+    const addOption = (value, text, { disabled = false } = {}) => {
+      const option = document.createElement('option');
+      option.value = value;
+      option.textContent = text;
+      option.disabled = disabled;
+      select.append(option);
+      return option;
+    };
+    addOption('', '系统默认');
+
+    if (this.ttsVoicesLoading) {
+      addOption('__loading', '正在读取系统语音…', { disabled: true });
+    } else if (!this.tts.supported) {
+      addOption('__unsupported', '当前环境不支持系统语音', { disabled: true });
+    } else if (!this.ttsVoices.length) {
+      addOption('__empty', '未读取到系统音色', { disabled: true });
+    } else {
+      const chinese = [];
+      const others = [];
+      for (const voice of this.ttsVoices) {
+        (/^(?:zh|cmn|yue)/i.test(voice.lang) ? chinese : others).push(voice);
+      }
+      const addGroup = (label, voices) => {
+        if (!voices.length) return;
+        const group = document.createElement('optgroup');
+        group.label = label;
+        const counts = new Map();
+        for (const voice of voices) {
+          const base = voiceOptionLabel(voice);
+          counts.set(base, (counts.get(base) || 0) + 1);
+        }
+        const ordinals = new Map();
+        for (const voice of voices) {
+          const base = voiceOptionLabel(voice);
+          const ordinal = (ordinals.get(base) || 0) + 1;
+          ordinals.set(base, ordinal);
+          const option = document.createElement('option');
+          option.value = voice.voiceURI;
+          option.textContent = voiceOptionLabel(voice, {
+            duplicateCount: counts.get(base) || 1,
+            ordinal,
+          });
+          option.title = [voice.name, voice.lang, voice.voiceURI].filter(Boolean).join(' · ');
+          group.append(option);
+        }
+        select.append(group);
+      };
+      addGroup('中文音色', chinese);
+      addGroup('其他语言', others);
+    }
+
+    const available = selected && findVoice(this.ttsVoices, selected);
+    select.value = available ? selected : '';
+    select.disabled = this.ttsVoicesLoading || !this.tts.supported;
+    if (this.dom.ttsVoiceRefresh) {
+      this.dom.ttsVoiceRefresh.disabled = this.ttsVoicesLoading || !this.tts.supported;
+    }
+
+    const hint = this.dom.ttsVoiceHint;
+    if (hint) {
+      let text = '';
+      let error = false;
+      if (this.ttsVoicesLoading) {
+        text = '正在读取系统语音…';
+      } else if (!this.tts.supported) {
+        text = '当前环境不支持系统语音朗读。';
+        error = true;
+      } else if (this.ttsVoicesError) {
+        text = this.ttsVoicesError;
+        error = true;
+      } else if (this.ttsVoices.length) {
+        text = `已找到 ${this.ttsVoices.length} 个系统音色 · ${this.tts.engineName}`;
+      } else {
+        text = '未读取到音色，将使用系统默认音色。';
+      }
+      hint.textContent = text;
+      hint.classList.toggle('is-error', error);
+    }
+  }
+
+  syncTtsRateUI() {
+    if (this.dom.ttsRateRange) this.dom.ttsRateRange.value = String(this.ttsPrefs.rate);
+    if (this.dom.ttsRateValue) {
+      this.dom.ttsRateValue.textContent = `${Number(this.ttsPrefs.rate).toFixed(2).replace(/0$/, '')}×`;
+    }
+  }
+
+  handleTtsRateChange(commit = false) {
+    const rate = clampSpeechRate(this.dom.ttsRateRange?.value);
+    this.ttsPrefs = { ...this.ttsPrefs, rate };
+    this.syncTtsRateUI();
+    if (commit) {
+      this.ttsPrefs = saveTtsPreferences({ rate });
+      if (this.narration.active && this.narration.playing) this.restartNarrationSpeech();
+    }
+  }
+
+  handleTtsVoiceChange() {
+    const voiceURI = this.dom.ttsVoiceSelect?.value || '';
+    this.ttsPrefs = saveTtsPreferences({ voiceURI });
+    if (this.narration.active && this.narration.playing) this.restartNarrationSpeech();
+    else this.syncNarrationUI();
+  }
+
+  toggleNarration() {
+    if (!this.isOpen || this.narration.loading) return;
+    if (!this.narration.active) {
+      this.startNarration();
+      return;
+    }
+    if (this.narration.playing) this.pauseNarration();
+    else this.resumeNarration();
+  }
+
+  async startNarration() {
+    if (!this.isOpen || !this.book || !this.chapter || this.isLoading || this.narration.loading) return;
+    if (!this.tts.supported) {
+      this.narration.error = '当前环境不支持系统语音朗读。';
+      this.syncNarrationUI();
+      toast(this.narration.error, { type: 'error' });
+      return;
+    }
+    if (this.narration.active) {
+      this.resumeNarration();
+      return;
+    }
+
+    const token = ++this.narration.token;
+    this.narration.loading = true;
+    this.narration.error = '';
+    this.syncNarrationUI();
+    try {
+      if (!this.ttsVoicesLoaded) await this.loadTtsVoices();
+      if (token !== this.narration.token || !this.isOpen || !this.narration.loading) return;
+      const script = buildNarrationScript(this.content);
+      if (!script.chunks.length) {
+        this.narration.loading = false;
+        this.narration.error = '本章没有可朗读的文字。';
+        this.syncNarrationUI();
+        toast('本章没有可朗读的文字', { type: 'error' });
+        return;
+      }
+
+      const ratio = this.chapterProgressFraction();
+      let index = 0;
+      if (ratio > 0.015) {
+        const target = ratio * script.textLength;
+        const found = script.chunks.findIndex((chunk) => chunk.end > target);
+        index = found >= 0 ? found : script.chunks.length - 1;
+      }
+
+      this.narration.loading = false;
+      this.narration.active = true;
+      this.narration.playing = true;
+      this.narration.chunks = script.chunks;
+      this.narration.index = clamp(index, 0, script.chunks.length - 1);
+      this.narration.chapterIndex = this.chapterIndex;
+      this.narration.chapterTitle = this.chapter?.title || this.chapterMeta(this.chapterIndex).title || '';
+      this.root.classList.add('tts-active');
+      this.syncNarrationUI();
+      this.runNarrationLoop(token);
+    } catch (error) {
+      if (token !== this.narration.token) return;
+      this.narration.loading = false;
+      this.narration.error = describeSpeechError(error);
+      this.syncNarrationUI();
+      toast(this.narration.error, { type: 'error', duration: 6000 });
+    }
+  }
+
+  pauseNarration() {
+    if (!this.narration.active || !this.narration.playing) return;
+    this.narration.playing = false;
+    this.narration.token += 1;
+    this.tts.stop();
+    this.syncNarrationUI();
+  }
+
+  resumeNarration() {
+    if (!this.narration.active || this.narration.playing) return;
+    if (!this.narration.chunks.length) {
+      this.narration.active = false;
+      this.startNarration();
+      return;
+    }
+    this.narration.error = '';
+    this.narration.playing = true;
+    this.narration.token += 1;
+    this.syncNarrationUI();
+    this.runNarrationLoop(this.narration.token);
+  }
+
+  restartNarrationSpeech() {
+    if (!this.narration.active || !this.narration.playing) {
+      this.syncNarrationUI();
+      return;
+    }
+    if (this.narration.loading) {
+      this.syncNarrationUI();
+      return;
+    }
+    this.narration.token += 1;
+    this.tts.stop();
+    const token = this.narration.token;
+    this.syncNarrationUI();
+    this.runNarrationLoop(token);
+  }
+
+  stopNarration({ silent = false } = {}) {
+    const wasActive = this.narration.active || this.narration.loading;
+    this.narration.token += 1;
+    this.narration.active = false;
+    this.narration.playing = false;
+    this.narration.loading = false;
+    this.narration.chunks = [];
+    this.narration.index = 0;
+    this.narration.chapterTitle = '';
+    this.narration.error = '';
+    this.clearTtsHighlight();
+    if (wasActive) this.tts.stop();
+    this.root.classList.remove('tts-active');
+    this.syncNarrationUI();
+    if (wasActive && !silent) this.updateProgressUI();
+  }
+
+  stopNarrationForNavigation() {
+    if (!this.narration.active && !this.narration.loading) return;
+    this.stopNarration({ silent: true });
+  }
+
+  async runNarrationLoop(token) {
+    while (this.isOpen && this.narration.active && this.narration.playing && token === this.narration.token) {
+      if (this.narration.index >= this.narration.chunks.length) {
+        const advanced = await this.advanceNarrationChapter();
+        if (!advanced) return;
+        continue;
+      }
+      const chunk = this.narration.chunks[this.narration.index];
+      if (!chunk) {
+        this.narration.index += 1;
+        continue;
+      }
+      this.followNarrationChunk(chunk);
+      this.syncNarrationUI();
+      let result;
+      try {
+        result = await this.tts.speak(chunk.text, {
+          rate: this.ttsPrefs.rate,
+          voiceURI: this.ttsPrefs.voiceURI,
+        });
+      } catch (error) {
+        result = { status: 'error', error };
+      }
+      if (token !== this.narration.token || !this.narration.active || !this.narration.playing) return;
+      if (result.status === 'cancelled') return;
+      if (result.status === 'error') {
+        this.failNarration(result.error);
+        return;
+      }
+      this.narration.index += 1;
+      this.syncNarrationUI();
+    }
+  }
+
+  async advanceNarrationChapter() {
+    if (!this.narration.active) return false;
+    if (this.chapterIndex >= this.chapterCount - 1) {
+      this.finishNarration();
+      return false;
+    }
+    this.narration.loading = true;
+    this.narration.error = '';
+    this.clearTtsHighlight();
+    this.syncNarrationUI();
+    const next = this.chapterIndex + 1;
+    const before = this.chapterIndex;
+    try {
+      await this.goToChapter(next, { position: 'start', fromNarration: true });
+    } catch (error) {
+      if (this.narration.active) this.failNarration(error);
+      return false;
+    }
+    if (!this.isOpen || !this.narration.active) return false;
+    if (this.chapterIndex !== next || before === this.chapterIndex) {
+      // renderChapter() already reports load failures; keep the panel status in
+      // sync without stacking a second toast on top of it.
+      this.failNarration(new Error('章节加载失败，朗读已停止。'), { notify: false });
+      return false;
+    }
+    const script = buildNarrationScript(this.content);
+    this.narration.loading = false;
+    this.narration.chapterIndex = this.chapterIndex;
+    this.narration.chapterTitle = this.chapter?.title || this.chapterMeta(this.chapterIndex).title || '';
+    this.narration.chunks = script.chunks;
+    this.narration.index = 0;
+    this.syncNarrationUI();
+    return true;
+  }
+
+  finishNarration() {
+    if (!this.narration.active) return;
+    this.completed = true;
+    this.finishedNotified = true;
+    this.updateProgressUI();
+    this.flushProgress();
+    this.stopNarration({ silent: true });
+    toast('全书朗读完毕。', { type: 'success' });
+  }
+
+  failNarration(error, { notify = true } = {}) {
+    this.narration.playing = false;
+    this.narration.loading = false;
+    this.narration.token += 1;
+    this.narration.error = describeSpeechError(error);
+    this.tts.stop();
+    this.syncNarrationUI();
+    if (notify) toast(this.narration.error, { type: 'error', duration: 6500 });
+  }
+
+  followNarrationChunk(chunk) {
+    if (!chunk?.range) return;
+    this.setTtsHighlight(chunk.range);
+    try {
+      if (this.settings.mode === 'paged') {
+        const page = this.pageForNarrationRange(chunk.range);
+        if (page !== null && page !== this.pageIndex) this.setPage(page, { animate: true });
+      } else {
+        this.revealNarrationRange(chunk.range);
+      }
+    } catch {
+      /* a range can be invalidated by a reflow */
+    }
+  }
+
+  pageForNarrationRange(range) {
+    if (!range || !this.content || !this.pageWidth) return null;
+    const rects = Array.from(range.getClientRects()).filter((rect) => rect.width > 0 && rect.height > 0);
+    if (!rects.length) return null;
+    const contentRect = this.content.getBoundingClientRect();
+    const page = Math.round((rects[0].left - contentRect.left) / (this.pageWidth + this.columnGap));
+    return clamp(page, 0, Math.max(0, this.pageCount - 1));
+  }
+
+  revealNarrationRange(range) {
+    if (!range || !this.page) return;
+    const rects = Array.from(range.getClientRects()).filter((rect) => rect.width > 0 && rect.height > 0);
+    if (!rects.length) return;
+    const rect = rects[0];
+    const pageRect = this.page.getBoundingClientRect();
+    const topGuard = pageRect.top + Math.min(120, pageRect.height * 0.22);
+    const bottomGuard = pageRect.bottom - Math.min(96, pageRect.height * 0.16);
+    if (rect.top >= topGuard && rect.bottom <= bottomGuard) return;
+    const max = Math.max(0, this.page.scrollHeight - this.page.clientHeight);
+    const target = this.page.scrollTop + rect.top - pageRect.top - pageRect.height * 0.18;
+    this.page.scrollTop = clamp(target, 0, max);
+  }
+
+  setTtsHighlight(range) {
+    const highlights = globalThis.CSS?.highlights;
+    if (typeof Highlight !== 'function' || !highlights) return;
+    try {
+      this.ttsHighlight = new Highlight(range);
+      highlights.set('moread-tts', this.ttsHighlight);
+    } catch {
+      this.ttsHighlight = null;
+    }
+  }
+
+  clearTtsHighlight() {
+    this.ttsHighlight = null;
+    try {
+      globalThis.CSS?.highlights?.delete('moread-tts');
+    } catch {
+      /* ignore */
+    }
+  }
+
+  syncNarrationUI() {
+    const { dom } = this;
+    if (!dom) return;
+    const state = this.narration;
+    const active = state.active || state.loading;
+    const playing = state.active && state.playing && !state.loading;
+    const loading = state.loading;
+    const current = state.chunks[state.index] || null;
+    const chapterTitle = state.active
+      ? state.chapterTitle
+      : (this.chapter?.title || (this.book ? this.chapterMeta(this.chapterIndex).title : '当前章节'));
+
+    this.root.classList.toggle('tts-active', active);
+
+    if (dom.listenBtn) {
+      dom.listenBtn.classList.toggle('is-active', active);
+      let title = '听书 (L)';
+      if (loading) title = '听书 · 准备中 (L)';
+      else if (state.active && state.playing) title = '听书 · 正在朗读 (L)';
+      else if (state.active) title = '听书 · 已暂停 (L)';
+      dom.listenBtn.title = title;
+    }
+
+    const playLabel = loading
+      ? '准备中…'
+      : state.active && state.playing
+        ? '暂停朗读'
+        : state.active
+          ? '继续朗读'
+          : '开始朗读';
+    if (dom.ttsPlayBtn) {
+      dom.ttsPlayBtn.disabled = loading || !this.tts.supported;
+      dom.ttsPlayBtn.setAttribute('aria-label', playLabel);
+      const label = dom.ttsPlayBtn.querySelector('span');
+      if (label) label.textContent = playLabel;
+      const use = dom.ttsPlayBtn.querySelector('use');
+      if (use) use.setAttribute('href', state.active && state.playing && !loading ? '#icon-pause' : '#icon-play');
+    }
+    if (dom.ttsStopBtn) dom.ttsStopBtn.disabled = !active;
+
+    if (dom.ttsNowState) {
+      let text = '准备朗读';
+      if (loading) text = '正在准备';
+      else if (state.active && state.error) text = '朗读中断';
+      else if (state.active && state.playing) text = '正在朗读';
+      else if (state.active) text = '已暂停';
+      dom.ttsNowState.textContent = text;
+    }
+    if (dom.ttsNowProgress) {
+      dom.ttsNowProgress.textContent = state.active && state.chunks.length
+        ? `${Math.min(state.index + 1, state.chunks.length)} / ${state.chunks.length} 句`
+        : '—';
+    }
+    if (dom.ttsNowChapter) dom.ttsNowChapter.textContent = chapterTitle || '当前章节';
+    if (dom.ttsNowFill) {
+      const percent = state.active && state.chunks.length
+        ? Math.min(100, ((state.index + 1) / state.chunks.length) * 100)
+        : 0;
+      dom.ttsNowFill.style.width = `${percent}%`;
+    }
+    if (dom.ttsNowSentence) {
+      let text = '点击开始，将从当前阅读位置朗读。';
+      if (loading) text = '正在加载章节…';
+      else if (state.active && current) text = `「${current.text}」`;
+      else if (state.active && state.error) text = state.error;
+      else if (state.active) text = '等待下一段文字…';
+      dom.ttsNowSentence.textContent = text;
+    }
+
+    if (dom.ttsDock) {
+      dom.ttsDock.hidden = !active;
+      dom.ttsDock.classList.toggle('is-playing', playing);
+    }
+    if (dom.ttsDockStatus) {
+      let text = '已暂停';
+      if (loading) text = '正在准备';
+      else if (state.error) text = '朗读中断';
+      else if (state.active && state.playing) text = '正在朗读';
+      dom.ttsDockStatus.textContent = text;
+    }
+    if (dom.ttsDockMeta) {
+      let meta = '系统语音';
+      if (state.active && state.chunks.length) {
+        meta = `${chapterTitle || '当前章节'} · ${Math.min(state.index + 1, state.chunks.length)}/${state.chunks.length} 句`;
+      } else if (loading) {
+        meta = '正在读取章节…';
+      }
+      dom.ttsDockMeta.textContent = meta;
+    }
+    if (dom.ttsDockToggle) {
+      dom.ttsDockToggle.disabled = loading;
+      const label = state.active && state.playing ? '暂停朗读' : '继续朗读';
+      dom.ttsDockToggle.title = label;
+      dom.ttsDockToggle.setAttribute('aria-label', label);
+      const use = dom.ttsDockToggle.querySelector('use');
+      if (use) use.setAttribute('href', state.active && state.playing && !loading ? '#icon-pause' : '#icon-play');
+    }
+  }
+
   /* ---------------------------- interactions ---------------------------- */
 
   setChromeHidden(hidden) {
@@ -1843,6 +2470,7 @@ export class Reader {
     if (href.startsWith('#')) {
       event.preventDefault();
       event.stopPropagation();
+      this.stopNarrationForNavigation();
       let anchorName = href.slice(1);
       try { anchorName = decodeURIComponent(anchorName); } catch { /* raw */ }
       this.goToAnchor(anchorName);
@@ -1945,6 +2573,11 @@ export class Reader {
       this.togglePanel('settings');
       return;
     }
+    if (lower === 'l') {
+      event.preventDefault();
+      this.togglePanel('listen');
+      return;
+    }
     if (lower === 'b') {
       event.preventDefault();
       this.toggleBookmark();
@@ -1973,6 +2606,9 @@ export class Reader {
     if (this.activePanel) return;
     // Leave navigation keys alone while a toolbar / dialog control is focused.
     if (event.target instanceof Element && event.target.closest('button, a, input, select, textarea, [contenteditable="true"]')) return;
+    if (this.narration.active && ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End', 'PageUp', 'PageDown', ' ', 'j', 'J', 'k', 'K'].includes(key)) {
+      this.stopNarrationForNavigation();
+    }
 
     if (this.settings.mode === 'paged') {
       if (['ArrowLeft', 'ArrowUp', 'PageUp', 'k', 'K'].includes(key)) {

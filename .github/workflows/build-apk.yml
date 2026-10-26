@@ -44,6 +44,7 @@ jobs:
       - name: Install Capacitor
         run: |
           npm install @capacitor/core@8.5.3 @capacitor/android@8.5.3 @capacitor/app@8.1.2
+          npm install @capacitor-community/text-to-speech@8.0.2
           npm install --save-dev @capacitor/cli@8.5.3
 
       - name: Prepare bundled web assets

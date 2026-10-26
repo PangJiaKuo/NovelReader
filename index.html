@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#f4efe4" media="(prefers-color-scheme: light)">
   <meta name="theme-color" content="#181a1c" media="(prefers-color-scheme: dark)">
-  <meta name="description" content="墨阅 Moread：本地优先的 EPUB / TXT 阅读器，支持自动章节目录、排版自定义与跨设备阅读进度同步。">
+  <meta name="description" content="墨阅 Moread：本地优先的 EPUB / TXT 阅读器，支持自动章节目录、系统语音听书、排版自定义与跨设备阅读进度同步。">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
@@ -42,6 +42,10 @@
     <symbol id="icon-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.7"/><path d="M12 11v5.4"/><circle cx="12" cy="7.8" r=".9" fill="currentColor" stroke="none"/></symbol>
     <symbol id="icon-wifi-off" viewBox="0 0 24 24"><path d="M3 3l18 18M8.7 15.8a4.8 4.8 0 0 1 6.6.1M5.4 12.2a10.5 10.5 0 0 1 4.1-2.4M14.6 9.8a10.5 10.5 0 0 1 4 2.4M2.5 8.7a15.5 15.5 0 0 1 3.9-2.3M13.4 5.4a15.5 15.5 0 0 1 8.1 3.3"/><circle cx="12" cy="19" r="1" fill="currentColor" stroke="none"/></symbol>
     <symbol id="icon-arrow-right" viewBox="0 0 24 24"><path d="M5 12h14M12.8 5.8 19 12l-6.2 6.2"/></symbol>
+    <symbol id="icon-headphones" viewBox="0 0 24 24"><path d="M4.5 13.5v-1.7a7.5 7.5 0 0 1 15 0v1.7"/><path d="M4.5 12.8h1.8c.9 0 1.5.6 1.5 1.5v3c0 .9-.6 1.5-1.5 1.5H5.2a.7.7 0 0 1-.7-.7zM19.5 12.8h-1.8c-.9 0-1.5.6-1.5 1.5v3c0 .9.6 1.5 1.5 1.5h1.1a.7.7 0 0 0 .7-.7z"/></symbol>
+    <symbol id="icon-play" viewBox="0 0 24 24"><path d="M8.5 5.5 19 12 8.5 18.5z" fill="currentColor" stroke="none"/></symbol>
+    <symbol id="icon-pause" viewBox="0 0 24 24"><rect x="7.2" y="5.5" width="3.2" height="13" rx="1" fill="currentColor" stroke="none"/><rect x="13.6" y="5.5" width="3.2" height="13" rx="1" fill="currentColor" stroke="none"/></symbol>
+    <symbol id="icon-stop" viewBox="0 0 24 24"><rect x="6.8" y="6.8" width="10.4" height="10.4" rx="1.6" fill="currentColor" stroke="none"/></symbol>
   </svg>
 
   <div id="app" class="app">
@@ -174,6 +178,9 @@
         <button type="button" class="icon-btn" id="readerBookmarkBtn" title="添加书签 (B)" aria-label="添加书签" aria-pressed="false">
           <svg class="icon"><use href="#icon-bookmark"></use></svg>
         </button>
+        <button type="button" class="icon-btn" id="readerListenBtn" title="听书 (L)" aria-label="听书" aria-controls="listenPanel" aria-expanded="false">
+          <svg class="icon"><use href="#icon-headphones"></use></svg>
+        </button>
         <button type="button" class="icon-btn" id="readerTocBtn" title="目录 (T)" aria-label="目录" aria-controls="tocPanel" aria-expanded="false">
           <svg class="icon"><use href="#icon-list"></use></svg>
         </button>
@@ -224,6 +231,26 @@
         <span class="aa-mini">Aa</span><span>显示</span>
       </button>
     </footer>
+
+    <div class="tts-dock" id="ttsDock" hidden>
+      <span class="tts-dock-glyph" aria-hidden="true">
+        <svg class="icon"><use href="#icon-headphones"></use></svg>
+        <span class="tts-bars"><i></i><i></i><i></i></span>
+      </span>
+      <div class="tts-dock-copy">
+        <strong id="ttsDockStatus">正在朗读</strong>
+        <span id="ttsDockMeta">系统语音</span>
+      </div>
+      <button type="button" class="icon-btn tts-dock-btn" id="ttsDockToggle" title="暂停朗读" aria-label="暂停朗读">
+        <svg class="icon"><use href="#icon-pause"></use></svg>
+      </button>
+      <button type="button" class="icon-btn tts-dock-btn" id="ttsDockOpen" title="听书设置" aria-label="听书设置" aria-controls="listenPanel" aria-expanded="false">
+        <svg class="icon"><use href="#icon-sliders"></use></svg>
+      </button>
+      <button type="button" class="icon-btn tts-dock-btn tts-dock-stop" id="ttsDockStop" title="停止朗读" aria-label="停止朗读">
+        <svg class="icon"><use href="#icon-stop"></use></svg>
+      </button>
+    </div>
 
     <div class="panel-scrim" id="panelScrim"></div>
 
@@ -355,6 +382,76 @@
           <button type="button" class="text-button" id="readerHelpBtn">快捷键与使用提示　<span class="key-hint">?</span></button>
           <button type="button" class="text-button danger-text" id="resetAppearance">恢复默认排版</button>
         </section>
+      </div>
+    </aside>
+
+    <aside class="reader-panel tts-panel" id="listenPanel" tabindex="-1" aria-hidden="true" aria-label="听书">
+      <header class="panel-header">
+        <div>
+          <p class="panel-eyebrow">LISTEN</p>
+          <h2>听书</h2>
+        </div>
+        <button type="button" class="icon-btn" data-close-panel title="关闭" aria-label="关闭听书">
+          <svg class="icon"><use href="#icon-close"></use></svg>
+        </button>
+      </header>
+      <div class="tts-scroll">
+        <section class="tts-hero">
+          <div class="tts-hero-icon" aria-hidden="true">
+            <svg class="icon"><use href="#icon-headphones"></use></svg>
+          </div>
+          <div class="tts-hero-copy">
+            <p class="tts-eyebrow">SYSTEM VOICE</p>
+            <h3>让文字读出来</h3>
+            <p>直接调用手机或电脑的系统语音引擎。音色和离线效果取决于设备已安装的语音。</p>
+          </div>
+        </section>
+
+        <section class="tts-now" id="ttsNowCard">
+          <div class="tts-now-head">
+            <span id="ttsNowState" aria-live="polite">准备朗读</span>
+            <span id="ttsNowProgress">—</span>
+          </div>
+          <p class="tts-now-chapter" id="ttsNowChapter">当前章节</p>
+          <div class="tts-now-track" aria-hidden="true"><span id="ttsNowFill"></span></div>
+          <p class="tts-now-sentence" id="ttsNowSentence">点击开始，将从当前阅读位置朗读。</p>
+        </section>
+
+        <div class="tts-controls">
+          <button type="button" class="tts-primary" id="ttsPlayBtn">
+            <svg class="icon"><use href="#icon-play"></use></svg>
+            <span>开始朗读</span>
+          </button>
+          <button type="button" class="tts-secondary" id="ttsStopBtn" disabled>
+            <svg class="icon"><use href="#icon-stop"></use></svg>
+            <span>停止</span>
+          </button>
+        </div>
+
+        <section class="tts-setting">
+          <div class="tts-setting-head">
+            <label for="ttsVoiceSelect">音色</label>
+            <button type="button" class="tts-inline-btn" id="ttsVoiceRefresh">刷新</button>
+          </div>
+          <div class="tts-select-wrap">
+            <select id="ttsVoiceSelect" aria-label="系统语音音色">
+              <option value="">系统默认</option>
+            </select>
+            <svg class="icon" aria-hidden="true"><use href="#icon-chevron-down"></use></svg>
+          </div>
+          <p class="tts-hint" id="ttsVoiceHint">正在读取系统语音…</p>
+        </section>
+
+        <section class="tts-setting">
+          <div class="tts-setting-head">
+            <label for="ttsRateRange">语速</label>
+            <output id="ttsRateValue" for="ttsRateRange">1.0×</output>
+          </div>
+          <input type="range" id="ttsRateRange" min="0.5" max="2" step="0.05" value="1" aria-label="朗读语速">
+          <div class="tts-rate-scale"><span>慢</span><span>快</span></div>
+        </section>
+
+        <p class="tts-note">朗读会自动跟随句子翻页并跨章节继续。手动翻页、切换章节或关闭阅读器时会停止朗读。</p>
       </div>
     </aside>
 
@@ -546,6 +643,7 @@
             <div><span>上一页 / 下一页</span><span class="keys"><kbd>←</kbd><kbd>→</kbd><kbd>空格</kbd></span></div>
             <div><span>目录</span><span class="keys"><kbd>T</kbd></span></div>
             <div><span>显示设置</span><span class="keys"><kbd>D</kbd></span></div>
+            <div><span>听书</span><span class="keys"><kbd>L</kbd></span></div>
             <div><span>全书搜索</span><span class="keys"><kbd>/</kbd><kbd>Ctrl</kbd><kbd>F</kbd></span></div>
             <div><span>添加 / 移除书签</span><span class="keys"><kbd>B</kbd></span></div>
             <div><span>全屏 / 沉浸阅读</span><span class="keys"><kbd>F</kbd><kbd>H</kbd></span></div>
@@ -561,6 +659,16 @@
             <li>左右轻扫翻页；点击页面左侧或右侧也可以翻页。</li>
             <li>轻点页面中央显示或隐藏工具栏。</li>
             <li>两指向外捏合不会缩放排版——请用“显示”面板调整字号，排版会保持清晰。</li>
+          </ul>
+        </section>
+
+        <section class="help-section">
+          <h3>听书</h3>
+          <ul class="help-list">
+            <li>点击阅读器顶部的耳机按钮，或按 <kbd>L</kbd> 打开听书面板；选择系统音色和语速后开始朗读。</li>
+            <li>朗读会逐句高亮并自动跟随翻页，读完一章后继续下一章。</li>
+            <li>手动翻页、切换章节或关闭阅读器会停止朗读；暂停后再次播放会从当前句继续。</li>
+            <li>音色来自设备系统。浏览器与 Android 设备可用的音色不同，离线效果取决于已安装的语音包。</li>
           </ul>
         </section>
 

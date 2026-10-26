@@ -1,6 +1,6 @@
 /* Moread service worker: offline shell + stale-while-revalidate assets. */
 
-const VERSION = 'moread-v1.0.5';
+const VERSION = 'moread-v1.1.0';
 const SHELL = [
   './',
   './index.html',
@@ -9,6 +9,7 @@ const SHELL = [
   './assets/styles.css',
   './js/app.js',
   './js/reader.js',
+  './js/tts.js',
   './js/ui.js',
   './js/importer.js',
   './js/epub.js',
