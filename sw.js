@@ -1,6 +1,6 @@
 /* Moread service worker: offline shell + stale-while-revalidate assets. */
 
-const VERSION = 'moread-v1.0.3';
+const VERSION = 'moread-v1.0.4';
 const SHELL = [
   './',
   './index.html',

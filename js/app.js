@@ -1199,6 +1199,8 @@ function initReader() {
     onHelp: () => showDialog(el.helpDialog),
   });
 
+  setupNativeBackButton();
+
   window.addEventListener('moread:progress', () => {
     if (isLoggedIn() && getAutoSync()) scheduleAutoSync();
   });
@@ -1206,6 +1208,27 @@ function initReader() {
     refreshSyncIndicators();
     if (el.syncDialog?.open) renderSyncDialog();
   });
+}
+
+function setupNativeBackButton() {
+  const capacitor = window.Capacitor;
+  if (!capacitor?.isNativePlatform?.() || typeof capacitor.registerPlugin !== 'function') return;
+  try {
+    const App = capacitor.registerPlugin('App');
+    if (!App?.addListener) return;
+    const ready = App.addListener('backButton', () => {
+      const dialog = document.querySelector('dialog[open]');
+      if (dialog) {
+        hideDialog(dialog);
+        return;
+      }
+      if (reader?.isOpen && reader.handleNativeBack()) return;
+      Promise.resolve(App.minimizeApp?.()).catch(() => {});
+    });
+    Promise.resolve(ready).catch(() => {});
+  } catch (error) {
+    console.warn('原生返回键不可用', error);
+  }
 }
 
 async function init() {

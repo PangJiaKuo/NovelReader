@@ -65,6 +65,8 @@ export class Reader {
     this.isLoading = false;
     this.activePanel = null;
     this.panelTab = 'toc';
+    this.tocBookId = null;
+    this.historyGuard = false;
     this.bookmarks = [];
     this.chromeHidden = false;
     this.searchCorpus = null;
@@ -93,6 +95,7 @@ export class Reader {
     this.content = this.dom.content;
     this.viewport = this.dom.viewport;
     this.buildAppearanceControls();
+    this.initHistoryState();
     this.bindEvents();
   }
 
@@ -344,6 +347,7 @@ export class Reader {
       this.accrueReadingTime();
       this.flushProgress();
     });
+    window.addEventListener('popstate', () => this.handleHistoryBack());
     window.addEventListener('beforeunload', () => {
       if (!this.isOpen) return;
       this.accrueReadingTime();
@@ -380,12 +384,76 @@ export class Reader {
     });
   }
 
+  initHistoryState() {
+    if (!window.history || typeof history.replaceState !== 'function') return;
+    try {
+      const current = history.state && typeof history.state === 'object' ? history.state : {};
+      if (current.moread !== 'library') {
+        history.replaceState({ ...current, moread: 'library' }, '', location.href);
+      }
+    } catch {
+      /* history is unavailable in some embedded webviews */
+    }
+  }
+
+  pushHistoryGuard() {
+    if (this.historyGuard || !this.isOpen) return;
+    try {
+      history.pushState({ moread: 'reader' }, '', location.href);
+      this.historyGuard = true;
+    } catch {
+      this.historyGuard = false;
+    }
+  }
+
+  handleHistoryBack() {
+    if (!this.isOpen || this.closing) {
+      this.historyGuard = false;
+      return;
+    }
+    this.historyGuard = false;
+    const dialog = document.querySelector('dialog[open]');
+    if (dialog) {
+      try {
+        if (typeof dialog.close === 'function') dialog.close();
+        else dialog.removeAttribute('open');
+      } catch {
+        dialog.removeAttribute('open');
+      }
+      this.pushHistoryGuard();
+      return;
+    }
+    this.handleNativeBack();
+    this.pushHistoryGuard();
+  }
+
+  /*
+   * Android's back gesture is normally consumed by the system before the page
+   * sees a touch event. Treat it as a reading action instead of letting the
+   * WebView finish the activity.
+   */
+  handleNativeBack() {
+    if (!this.isOpen || this.closing) return false;
+    if (this.activePanel) {
+      this.closePanels();
+      return true;
+    }
+    if (!this.dom.searchOverlay?.hidden) {
+      this.closeSearch();
+      return true;
+    }
+    this.prevAction();
+    return true;
+  }
+
   /* ------------------------------ opening ------------------------------ */
 
   async open(book) {
     if (!book) return;
     this.isOpen = true;
     this.closing = false;
+    this.historyGuard = false;
+    this.pushHistoryGuard();
     this.book = book;
     this.progress = await getProgress(book.id).catch((error) => {
       console.warn('读取阅读进度失败', error);
@@ -415,6 +483,13 @@ export class Reader {
       : Array.from({ length: this.chapterCount }, (_, index) => ({ title: `第 ${index + 1} 章`, chars: 0 }));
     this.chapterCount = this.chaptersMeta.length;
     this.buildChapterOffsets();
+
+    // The TOC DOM is reused between books. Invalidate it and any old filter so
+    // the next opening of the panel rebuilds the current book's chapters.
+    this.panelTab = 'toc';
+    this.tocBookId = null;
+    this.dom.tocList?.replaceChildren();
+    if (this.dom.tocFilter) this.dom.tocFilter.value = '';
 
     this.readingTime = Math.max(0, Number(this.progress?.readingTime) || 0);
     this.lastReadingTick = Date.now();
@@ -451,6 +526,8 @@ export class Reader {
   async close() {
     if (!this.isOpen || this.closing) return;
     this.closing = true;
+    const dropHistoryEntry = this.historyGuard;
+    this.historyGuard = false;
     this.settingsSaveDebounced.flush?.();
     this.accrueReadingTime();
     this.progressSaveDebounced.cancel();
@@ -482,6 +559,13 @@ export class Reader {
     this.root.hidden = false;
     this.closing = false;
     document.title = BASE_TITLE;
+    if (dropHistoryEntry) {
+      try {
+        history.back();
+      } catch {
+        /* ignore */
+      }
+    }
     this.onClose(finishedBook);
   }
 
@@ -1059,7 +1143,7 @@ export class Reader {
     this.dom.scrim?.classList.add('is-visible');
     this.root.classList.add('panel-open');
     if (name === 'toc') {
-      if (!this.dom.tocList?.children.length) this.renderToc();
+      if (this.tocBookId !== this.book?.id || !this.dom.tocList?.children.length) this.renderToc();
       this.setPanelTab(this.panelTab);
       requestAnimationFrame(() => {
         toc?.focus({ preventScroll: true });
@@ -1122,6 +1206,7 @@ export class Reader {
 
   renderToc() {
     if (!this.dom.tocList) return;
+    this.tocBookId = this.book?.id || null;
     const fragment = document.createDocumentFragment();
     this.chaptersMeta.forEach((meta, index) => {
       const button = document.createElement('button');
