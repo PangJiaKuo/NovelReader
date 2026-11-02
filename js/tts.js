@@ -4,13 +4,44 @@ export const MAX_SPEECH_CHUNK = 120;
 const PREFS_KEY = 'moread:tts';
 
 const CJK_RE = /[\u3400-\u9fff\uf900-\ufaff]/;
+const KANA_RE = /[\u3040-\u30ff\u31f0-\u31ff]/;
+const HANGUL_RE = /[\uac00-\ud7af\u1100-\u11ff]/;
 const BOUNDARY_RE = /[。！？!?；;…\n]|\.(?=\s|$)/g;
 const CLOSERS = /[”’"」』）)\]】》]/;
 const SPLIT_POINT_RE = /[，,、：:；;\s]/;
 
+export const GSV_API_MODES = Object.freeze(['auto', 'gsv', 'neko']);
+export const GSV_LANGUAGES = Object.freeze([
+  'auto',
+  'auto_yue',
+  'zh',
+  'ja',
+  'en',
+  'ko',
+  'yue',
+  'all_zh',
+  'all_ja',
+  'all_yue',
+  'all_ko',
+]);
+
+export const DEFAULT_GSV_CONFIG = Object.freeze({
+  apiBaseUrl: '',
+  apiMode: 'auto',
+  refAudioPath: '',
+  promptText: '',
+  promptLang: 'auto',
+  textLang: 'auto',
+  timeout: 60,
+  gptModelPath: '',
+  sovitsModelPath: '',
+});
+
 export const DEFAULT_TTS_PREFS = Object.freeze({
+  engine: 'system',
   voiceURI: '',
   rate: 1,
+  gsv: DEFAULT_GSV_CONFIG,
 });
 
 export function clampSpeechRate(value) {
@@ -19,25 +50,104 @@ export function clampSpeechRate(value) {
   return Math.min(2, Math.max(0.5, Math.round(rate * 20) / 20));
 }
 
+export function normalizeGsvApiUrl(value) {
+  let url = String(value || '').trim();
+  if (!url) return '';
+  if (!/^[a-z][a-z\d+.-]*:\/\//i.test(url) && !/^https?:/i.test(url)) {
+    url = `http://${url}`;
+  }
+  return url.replace(/\/+$/, '');
+}
+
+export function clampGsvTimeout(value) {
+  const timeout = Number(value);
+  if (!Number.isFinite(timeout)) return DEFAULT_GSV_CONFIG.timeout;
+  return Math.min(180, Math.max(5, Math.round(timeout)));
+}
+
+export function normalizeGsvLanguage(value, fallback = 'auto') {
+  const lang = String(value || '').trim().toLowerCase().replace(/-/g, '_');
+  return GSV_LANGUAGES.includes(lang) ? lang : fallback;
+}
+
+export function normalizeGsvConfig(raw) {
+  const source = raw && typeof raw === 'object' ? raw : {};
+  const apiMode = String(source.apiMode || '').trim().toLowerCase();
+  return {
+    apiBaseUrl: normalizeGsvApiUrl(source.apiBaseUrl),
+    apiMode: GSV_API_MODES.includes(apiMode) ? apiMode : DEFAULT_GSV_CONFIG.apiMode,
+    refAudioPath: String(source.refAudioPath || '').trim(),
+    promptText: String(source.promptText || '').trim(),
+    promptLang: normalizeGsvLanguage(source.promptLang, DEFAULT_GSV_CONFIG.promptLang),
+    textLang: normalizeGsvLanguage(source.textLang, DEFAULT_GSV_CONFIG.textLang),
+    timeout: clampGsvTimeout(source.timeout),
+    gptModelPath: String(source.gptModelPath || '').trim(),
+    sovitsModelPath: String(source.sovitsModelPath || '').trim(),
+  };
+}
+
+export function gsvConfigIssue(config) {
+  const value = normalizeGsvConfig(config);
+  if (!value.apiBaseUrl) return '请先填写 GPT-SoVITS API 地址。';
+  let url;
+  try {
+    url = new URL(value.apiBaseUrl);
+  } catch {
+    return 'API 地址格式不正确，请填写完整的服务地址。';
+  }
+  if (!url.hostname) return 'API 地址格式不正确，请填写完整的服务地址。';
+  if (!/^https?:$/.test(url.protocol)) {
+    return 'API 地址需要以 http:// 或 https:// 开头。';
+  }
+  if (!value.refAudioPath) return '请填写服务器上的参考音频路径。';
+  if (!value.promptText) return '请填写参考音频里说的原话，否则合成质量会明显下降。';
+  return '';
+}
+
+export function inferGsvTextLang(text) {
+  const value = String(text || '');
+  if (KANA_RE.test(value)) return 'ja';
+  if (HANGUL_RE.test(value)) return 'ko';
+  if (CJK_RE.test(value)) return 'zh';
+  return 'en';
+}
+
+export function resolveGsvTextLang(config, text) {
+  const lang = normalizeGsvLanguage(config?.textLang);
+  return lang === 'auto' ? inferGsvTextLang(text) : lang;
+}
+
 export function loadTtsPreferences() {
   try {
     const parsed = JSON.parse(localStorage.getItem(PREFS_KEY) || '{}');
     return {
+      engine: parsed.engine === 'gpt-sovits' ? 'gpt-sovits' : 'system',
       voiceURI: typeof parsed.voiceURI === 'string' ? parsed.voiceURI : '',
       rate: clampSpeechRate(parsed.rate),
+      gsv: normalizeGsvConfig(parsed.gsv),
     };
   } catch {
-    return { ...DEFAULT_TTS_PREFS };
+    return {
+      ...DEFAULT_TTS_PREFS,
+      gsv: normalizeGsvConfig(DEFAULT_GSV_CONFIG),
+    };
   }
 }
 
 export function saveTtsPreferences(patch = {}) {
+  const current = loadTtsPreferences();
   const next = {
-    ...loadTtsPreferences(),
+    ...current,
     ...patch,
   };
+  next.engine = next.engine === 'gpt-sovits' ? 'gpt-sovits' : 'system';
   next.rate = clampSpeechRate(next.rate);
   next.voiceURI = typeof next.voiceURI === 'string' ? next.voiceURI : '';
+  next.gsv = normalizeGsvConfig(
+    patch && patch.gsv && typeof patch.gsv === 'object'
+      ? { ...current.gsv, ...patch.gsv }
+      : current.gsv,
+  );
   try {
     localStorage.setItem(PREFS_KEY, JSON.stringify(next));
   } catch {
@@ -311,6 +421,7 @@ function wait(ms) {
 }
 
 export function describeSpeechError(error) {
+  if (error?.userMessage) return String(error.userMessage);
   const raw = String(error?.message || error?.error || error || '');
   if (/language.*not supported|not supported.*language/i.test(raw)) {
     return '当前语音引擎不支持该语言。请安装中文语音包，或在“音色”中选择其他语音。';

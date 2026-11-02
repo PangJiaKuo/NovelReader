@@ -401,10 +401,21 @@
             <svg class="icon"><use href="#icon-headphones"></use></svg>
           </div>
           <div class="tts-hero-copy">
-            <p class="tts-eyebrow">SYSTEM VOICE</p>
-            <h3>让文字读出来</h3>
-            <p>直接调用手机或电脑的系统语音引擎。音色和离线效果取决于设备已安装的语音。</p>
+            <p class="tts-eyebrow" id="ttsHeroEyebrow">SYSTEM VOICE</p>
+            <h3 id="ttsHeroTitle">让文字读出来</h3>
+            <p id="ttsHeroCopy">直接调用手机或电脑的系统语音引擎。音色和离线效果取决于设备已安装的语音。</p>
           </div>
+        </section>
+
+        <section class="tts-engine" role="group" aria-label="朗读引擎">
+          <button type="button" class="tts-engine-btn is-active" id="ttsEngineSystem" aria-pressed="true">
+            <svg class="icon" aria-hidden="true"><use href="#icon-headphones"></use></svg>
+            <span><strong>系统语音</strong><small>离线 · 设备音色</small></span>
+          </button>
+          <button type="button" class="tts-engine-btn" id="ttsEngineGsv" aria-pressed="false">
+            <svg class="icon" aria-hidden="true"><use href="#icon-cloud"></use></svg>
+            <span><strong>GPT-SoVITS</strong><small>服务器 · 参考音色</small></span>
+          </button>
         </section>
 
         <section class="tts-now" id="ttsNowCard">
@@ -428,7 +439,7 @@
           </button>
         </div>
 
-        <section class="tts-setting">
+        <section class="tts-setting" id="ttsSystemVoiceSetting">
           <div class="tts-setting-head">
             <label for="ttsVoiceSelect">音色</label>
             <button type="button" class="tts-inline-btn" id="ttsVoiceRefresh">刷新</button>
@@ -442,6 +453,81 @@
           <p class="tts-hint" id="ttsVoiceHint">正在读取系统语音…</p>
         </section>
 
+        <section class="tts-setting tts-gsv" id="ttsGsvSettings" hidden>
+          <div class="tts-setting-head">
+            <label>GPT-SoVITS 服务</label>
+            <button type="button" class="tts-inline-btn" id="ttsGsvTest">测试连接</button>
+          </div>
+          <div class="tts-fields">
+            <label class="tts-field">
+              <span>API 地址</span>
+              <input id="ttsGsvApi" type="url" inputmode="url" placeholder="http://100.68.97.6:9881" autocomplete="off" spellcheck="false">
+            </label>
+            <div class="tts-field-row">
+              <label class="tts-field">
+                <span>接口格式</span>
+                <select id="ttsGsvApiMode">
+                  <option value="auto">自动识别</option>
+                  <option value="gsv">GPT-SoVITS v2 (/tts)</option>
+                  <option value="neko">api_neko v2 (/api/v2/tts)</option>
+                </select>
+              </label>
+              <label class="tts-field">
+                <span>超时（秒）</span>
+                <input id="ttsGsvTimeout" type="number" min="5" max="180" step="5" value="60" inputmode="numeric">
+              </label>
+            </div>
+            <label class="tts-field">
+              <span>参考音频路径</span>
+              <input id="ttsGsvRefAudio" type="text" placeholder="/workspace/default_audio/参考音频.wav" autocomplete="off" spellcheck="false">
+              <small class="tts-field-note">服务器上的 3–10 秒音频，路径需用绝对路径。</small>
+            </label>
+            <label class="tts-field">
+              <span>参考音频文本</span>
+              <textarea id="ttsGsvPromptText" rows="2" placeholder="填写参考音频里说的原话"></textarea>
+            </label>
+            <div class="tts-field-row">
+              <label class="tts-field">
+                <span>参考语言</span>
+                <select id="ttsGsvPromptLang">
+                  <option value="auto">自动</option>
+                  <option value="zh">中文</option>
+                  <option value="ja">日语</option>
+                  <option value="en">英语</option>
+                  <option value="ko">韩语</option>
+                  <option value="yue">粤语</option>
+                </select>
+              </label>
+              <label class="tts-field">
+                <span>朗读语言</span>
+                <select id="ttsGsvTextLang">
+                  <option value="auto">自动识别</option>
+                  <option value="zh">中文</option>
+                  <option value="ja">日语</option>
+                  <option value="en">英语</option>
+                  <option value="ko">韩语</option>
+                  <option value="yue">粤语</option>
+                </select>
+              </label>
+            </div>
+            <details class="tts-advanced">
+              <summary>模型与高级设置</summary>
+              <div class="tts-fields tts-advanced-fields">
+                <label class="tts-field">
+                  <span>GPT 模型路径（可选）</span>
+                  <input id="ttsGsvGptModel" type="text" placeholder="/workspace/GPT-SoVITS/GPT_weights_v2/xxx.ckpt" autocomplete="off" spellcheck="false">
+                </label>
+                <label class="tts-field">
+                  <span>SoVITS 模型路径（可选）</span>
+                  <input id="ttsGsvSovitsModel" type="text" placeholder="/workspace/GPT-SoVITS/SoVITS_weights_v2/xxx.pth" autocomplete="off" spellcheck="false">
+                </label>
+                <p class="tts-field-note">留空时使用服务端当前已加载的模型。填写后会在每次朗读前切换到指定模型。</p>
+              </div>
+            </details>
+          </div>
+          <p class="tts-hint" id="ttsGsvHint">填写服务器地址、参考音频和参考文本后即可使用。</p>
+        </section>
+
         <section class="tts-setting">
           <div class="tts-setting-head">
             <label for="ttsRateRange">语速</label>
@@ -451,7 +537,7 @@
           <div class="tts-rate-scale"><span>慢</span><span>快</span></div>
         </section>
 
-        <p class="tts-note">朗读会自动跟随句子翻页并跨章节继续。手动翻页、切换章节或关闭阅读器时会停止朗读。</p>
+        <p class="tts-note">朗读会自动跟随句子翻页并跨章节继续。手动翻页、切换章节或关闭阅读器时会停止朗读。GPT-SoVITS 模式会逐句请求服务器，首次合成可能需要几秒。</p>
       </div>
     </aside>
 

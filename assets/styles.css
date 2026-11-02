@@ -2744,6 +2744,72 @@ kbd {
   line-height: 1.7;
 }
 
+.tts-engine {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin: 16px 0 0;
+}
+
+.tts-engine-btn {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
+  padding: 10px 11px;
+  border: 1px solid color-mix(in srgb, var(--reader-text) 11%, transparent);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--reader-text) 3%, transparent);
+  color: color-mix(in srgb, var(--reader-text) 56%, transparent);
+  text-align: left;
+  transition: border-color 0.18s ease, background-color 0.18s ease, color 0.18s ease;
+}
+
+.tts-engine-btn:hover {
+  border-color: color-mix(in srgb, var(--reader-text) 20%, transparent);
+  color: var(--reader-text);
+}
+
+.tts-engine-btn.is-active {
+  border-color: color-mix(in srgb, var(--reader-accent) 38%, transparent);
+  background: color-mix(in srgb, var(--reader-accent) 9%, transparent);
+  color: var(--reader-accent);
+}
+
+.tts-engine-btn .icon {
+  flex: none;
+  width: 18px;
+  height: 18px;
+}
+
+.tts-engine-btn > span {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  gap: 2px;
+}
+
+.tts-engine-btn strong {
+  overflow: hidden;
+  font-size: 10.5px;
+  font-weight: 650;
+  letter-spacing: 0.03em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tts-engine-btn small {
+  overflow: hidden;
+  color: color-mix(in srgb, var(--reader-text) 38%, transparent);
+  font-size: 8px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tts-engine-btn.is-active small {
+  color: color-mix(in srgb, var(--reader-accent) 68%, transparent);
+}
+
 .tts-now {
   margin: 16px 0 14px;
   padding: 14px 14px 13px;
@@ -2954,6 +3020,120 @@ kbd {
 
 .tts-hint.is-error {
   color: var(--danger, #b6634e);
+}
+
+.tts-hint.is-ok {
+  color: color-mix(in srgb, var(--reader-accent) 76%, transparent);
+}
+
+.tts-inline-btn:disabled {
+  opacity: 0.42;
+  cursor: default;
+}
+
+.tts-fields {
+  display: grid;
+  gap: 10px;
+}
+
+.tts-field {
+  display: grid;
+  min-width: 0;
+  gap: 5px;
+}
+
+.tts-field > span {
+  color: color-mix(in srgb, var(--reader-text) 46%, transparent);
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+}
+
+.tts-field input,
+.tts-field select,
+.tts-field textarea {
+  width: 100%;
+  min-width: 0;
+  padding: 9px 11px;
+  border: 1px solid color-mix(in srgb, var(--reader-text) 12%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--reader-text) 3%, transparent);
+  color: var(--reader-text);
+  font-family: var(--ui-font, sans-serif);
+  font-size: 10.5px;
+  line-height: 1.45;
+  outline: 0;
+  transition: border-color 0.18s ease, box-shadow 0.18s ease;
+}
+
+.tts-field select {
+  height: 38px;
+  padding-top: 0;
+  padding-right: 28px;
+  padding-bottom: 0;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 8'%3E%3Cpath d='M1 1.5 6 6.5l5-5' fill='none' stroke='%238b8e83' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+  background-size: 10px;
+  appearance: none;
+  -webkit-appearance: none;
+}
+
+.tts-field textarea {
+  min-height: 52px;
+  resize: vertical;
+}
+
+.tts-field input:focus,
+.tts-field select:focus,
+.tts-field textarea:focus {
+  border-color: color-mix(in srgb, var(--reader-accent) 48%, transparent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--reader-accent) 8%, transparent);
+}
+
+.tts-field input::placeholder,
+.tts-field textarea::placeholder {
+  color: color-mix(in srgb, var(--reader-text) 28%, transparent);
+}
+
+.tts-field select option {
+  background: var(--reader-bg);
+  color: var(--reader-text);
+}
+
+.tts-field-row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.tts-advanced {
+  margin-top: 2px;
+  padding-top: 10px;
+  border-top: 1px dashed color-mix(in srgb, var(--reader-text) 10%, transparent);
+}
+
+.tts-advanced summary {
+  cursor: pointer;
+  color: color-mix(in srgb, var(--reader-text) 46%, transparent);
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+}
+
+.tts-advanced summary:hover {
+  color: var(--reader-accent);
+}
+
+.tts-advanced-fields {
+  margin-top: 10px;
+}
+
+.tts-field-note {
+  margin: 0;
+  color: color-mix(in srgb, var(--reader-text) 34%, transparent);
+  font-size: 9px;
+  line-height: 1.6;
 }
 
 .tts-setting input[type="range"] {
@@ -4985,6 +5165,10 @@ body.is-offline .sync-button {
 
   .book-dialog-copy h2 {
     font-size: 18px;
+  }
+
+  .tts-field-row {
+    grid-template-columns: 1fr;
   }
 }
 

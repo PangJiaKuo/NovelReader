@@ -33,11 +33,13 @@ import {
   clampSpeechRate,
   describeSpeechError,
   findVoice,
+  gsvConfigIssue,
   loadTtsPreferences,
   saveTtsPreferences,
   SystemSpeech,
   voiceOptionLabel,
 } from './tts.js';
+import { GptSoVitsSpeech } from './gpt-sovits.js';
 
 const $ = (selector, root = document) => root.querySelector(selector);
 const $$ = (selector, root = document) => Array.from(root.querySelectorAll(selector));
@@ -98,10 +100,12 @@ export class Reader {
     this.ttsVoicesError = '';
     this.ttsVoicesPromise = null;
     this.ttsHighlight = null;
+    this.gsvTest = { running: false, message: '', tone: '' };
     this.narration = {
       active: false,
       playing: false,
       loading: false,
+      synthesizing: false,
       token: 0,
       chunks: [],
       index: 0,
@@ -109,17 +113,18 @@ export class Reader {
       chapterTitle: '',
       error: '',
     };
-    this.tts = new SystemSpeech({
+    this.systemTts = new SystemSpeech({
       onVoicesChanged: (voices) => {
         if (!this.isOpen) return;
         this.ttsVoices = Array.isArray(voices) ? voices : [];
         this.ttsVoicesLoaded = this.ttsVoices.length > 0;
         this.ttsVoicesLoading = false;
         this.ttsVoicesError = '';
-        if (this.activePanel === 'listen') this.updateTtsVoiceUI();
+        if (this.activePanel === 'listen' && this.ttsPrefs.engine === 'system') this.updateTtsVoiceUI();
         this.syncNarrationUI();
       },
     });
+    this.gsvTts = new GptSoVitsSpeech({ getConfig: () => this.ttsPrefs.gsv });
 
     this.progressSaveDebounced = debounce(() => this.flushProgress(), 500);
     this.settingsSaveDebounced = debounce(() => {
@@ -137,6 +142,12 @@ export class Reader {
     this.buildAppearanceControls();
     this.initHistoryState();
     this.bindEvents();
+    this.syncTtsEngineUI();
+    this.syncGsvConfigUI();
+  }
+
+  get tts() {
+    return this.ttsPrefs.engine === 'gpt-sovits' ? this.gsvTts : this.systemTts;
   }
 
   cacheDom() {
@@ -178,9 +189,27 @@ export class Reader {
       ttsNowChapter: 'ttsNowChapter',
       ttsNowSentence: 'ttsNowSentence',
       ttsNowFill: 'ttsNowFill',
+      ttsEngineSystem: 'ttsEngineSystem',
+      ttsEngineGsv: 'ttsEngineGsv',
+      ttsHeroEyebrow: 'ttsHeroEyebrow',
+      ttsHeroTitle: 'ttsHeroTitle',
+      ttsHeroCopy: 'ttsHeroCopy',
+      ttsSystemVoiceSetting: 'ttsSystemVoiceSetting',
       ttsVoiceSelect: 'ttsVoiceSelect',
       ttsVoiceHint: 'ttsVoiceHint',
       ttsVoiceRefresh: 'ttsVoiceRefresh',
+      ttsGsvSettings: 'ttsGsvSettings',
+      ttsGsvApi: 'ttsGsvApi',
+      ttsGsvApiMode: 'ttsGsvApiMode',
+      ttsGsvRefAudio: 'ttsGsvRefAudio',
+      ttsGsvPromptText: 'ttsGsvPromptText',
+      ttsGsvPromptLang: 'ttsGsvPromptLang',
+      ttsGsvTextLang: 'ttsGsvTextLang',
+      ttsGsvTimeout: 'ttsGsvTimeout',
+      ttsGsvGptModel: 'ttsGsvGptModel',
+      ttsGsvSovitsModel: 'ttsGsvSovitsModel',
+      ttsGsvTest: 'ttsGsvTest',
+      ttsGsvHint: 'ttsGsvHint',
       ttsRateRange: 'ttsRateRange',
       ttsRateValue: 'ttsRateValue',
       ttsDock: 'ttsDock',
@@ -301,6 +330,24 @@ export class Reader {
     dom.ttsDockOpen?.addEventListener('click', () => this.openPanel('listen'));
     dom.ttsVoiceRefresh?.addEventListener('click', () => this.loadTtsVoices(true));
     dom.ttsVoiceSelect?.addEventListener('change', () => this.handleTtsVoiceChange());
+    dom.ttsEngineSystem?.addEventListener('click', () => this.handleTtsEngineChange('system'));
+    dom.ttsEngineGsv?.addEventListener('click', () => this.handleTtsEngineChange('gpt-sovits'));
+    dom.ttsGsvTest?.addEventListener('click', () => this.testGsvConnection());
+    const gsvFields = [
+      ['ttsGsvApi', 'apiBaseUrl'],
+      ['ttsGsvApiMode', 'apiMode'],
+      ['ttsGsvRefAudio', 'refAudioPath'],
+      ['ttsGsvPromptText', 'promptText'],
+      ['ttsGsvPromptLang', 'promptLang'],
+      ['ttsGsvTextLang', 'textLang'],
+      ['ttsGsvTimeout', 'timeout'],
+      ['ttsGsvGptModel', 'gptModelPath'],
+      ['ttsGsvSovitsModel', 'sovitsModelPath'],
+    ];
+    for (const [key, field] of gsvFields) {
+      dom[key]?.addEventListener('change', () => this.handleGsvFieldChange(field));
+    }
+    dom.ttsGsvApi?.addEventListener('input', () => this.syncGsvTestButton());
     dom.ttsRateRange?.addEventListener('input', () => this.handleTtsRateChange(false));
     dom.ttsRateRange?.addEventListener('change', () => this.handleTtsRateChange(true));
     dom.hiddenHint?.addEventListener('click', () => this.setChromeHidden(false));
@@ -525,6 +572,7 @@ export class Reader {
     this.ttsVoicesLoaded = false;
     this.ttsVoicesError = '';
     this.ttsVoices = [];
+    this.gsvTest = { running: false, message: '', tone: '' };
     this.isOpen = true;
     this.closing = false;
     this.historyGuard = false;
@@ -587,6 +635,8 @@ export class Reader {
     this.closePanels(true);
     this.closeSearch(true);
     this.setChromeHidden(false);
+    this.syncTtsEngineUI();
+    this.syncGsvConfigUI();
     this.syncNarrationUI();
 
     const startChapter = clamp(Number(this.progress?.chapterIndex) || 0, 0, this.chapterCount - 1);
@@ -1871,8 +1921,14 @@ export class Reader {
 
   prepareListenPanel() {
     if (!this.isOpen) return;
+    this.syncTtsEngineUI();
+    this.syncGsvConfigUI();
     this.syncNarrationUI();
     this.syncTtsRateUI();
+    if (this.ttsPrefs.engine === 'gpt-sovits') {
+      this.updateTtsVoiceUI();
+      return;
+    }
     if (!this.tts.supported) {
       this.ttsVoicesError = this.tts.unsupportedMessage;
       this.updateTtsVoiceUI();
@@ -1886,6 +1942,11 @@ export class Reader {
   }
 
   async loadTtsVoices(force = false) {
+    if (this.ttsPrefs.engine === 'gpt-sovits') {
+      this.ttsVoicesLoading = false;
+      this.updateTtsVoiceUI();
+      return { voices: [], error: '' };
+    }
     if (!this.tts.supported) {
       this.ttsVoicesError = this.tts.unsupportedMessage;
       this.updateTtsVoiceUI();
@@ -1923,6 +1984,11 @@ export class Reader {
   }
 
   updateTtsVoiceUI() {
+    this.syncTtsEngineUI();
+    if (this.ttsPrefs.engine === 'gpt-sovits') {
+      this.syncGsvConfigUI();
+      return;
+    }
     const select = this.dom.ttsVoiceSelect;
     if (!select) return;
     const selected = this.ttsPrefs.voiceURI;
@@ -2007,6 +2073,166 @@ export class Reader {
     }
   }
 
+  syncTtsEngineUI() {
+    const isGsv = this.ttsPrefs.engine === 'gpt-sovits';
+    const { dom } = this;
+    const buttons = [
+      [dom.ttsEngineSystem, !isGsv],
+      [dom.ttsEngineGsv, isGsv],
+    ];
+    for (const [button, active] of buttons) {
+      if (!button) continue;
+      button.classList.toggle('is-active', active);
+      button.setAttribute('aria-pressed', String(active));
+    }
+    if (dom.ttsSystemVoiceSetting) dom.ttsSystemVoiceSetting.hidden = isGsv;
+    if (dom.ttsGsvSettings) dom.ttsGsvSettings.hidden = !isGsv;
+    if (dom.ttsHeroEyebrow) dom.ttsHeroEyebrow.textContent = isGsv ? 'GPT-SOVITS' : 'SYSTEM VOICE';
+    if (dom.ttsHeroTitle) dom.ttsHeroTitle.textContent = isGsv ? '用自己的声音朗读' : '让文字读出来';
+    if (dom.ttsHeroCopy) {
+      dom.ttsHeroCopy.textContent = isGsv
+        ? '连接你部署的 GPT-SoVITS 服务，用参考音频复刻音色。合成在服务器上完成，需要保持网络连接。'
+        : '直接调用手机或电脑的系统语音引擎。音色和离线效果取决于设备已安装的语音。';
+    }
+    this.syncGsvTestButton();
+  }
+
+  syncGsvConfigUI() {
+    const config = this.ttsPrefs.gsv;
+    const setValue = (input, value) => {
+      if (input && document.activeElement !== input) input.value = value;
+    };
+    setValue(this.dom.ttsGsvApi, config.apiBaseUrl);
+    setValue(this.dom.ttsGsvApiMode, config.apiMode);
+    setValue(this.dom.ttsGsvRefAudio, config.refAudioPath);
+    setValue(this.dom.ttsGsvPromptText, config.promptText);
+    setValue(this.dom.ttsGsvPromptLang, config.promptLang);
+    setValue(this.dom.ttsGsvTextLang, config.textLang);
+    setValue(this.dom.ttsGsvTimeout, String(config.timeout));
+    setValue(this.dom.ttsGsvGptModel, config.gptModelPath);
+    setValue(this.dom.ttsGsvSovitsModel, config.sovitsModelPath);
+    this.updateGsvHint();
+  }
+
+  updateGsvHint() {
+    const hint = this.dom.ttsGsvHint;
+    if (!hint) return;
+    const issue = gsvConfigIssue(this.ttsPrefs.gsv);
+    let text = '';
+    let tone = '';
+    if (this.gsvTest.running) {
+      text = this.gsvTest.message || '正在连接并合成测试语音…';
+    } else if (this.gsvTest.message) {
+      text = this.gsvTest.message;
+      tone = this.gsvTest.tone;
+    } else if (issue) {
+      text = issue;
+      tone = 'error';
+    } else {
+      const host = this.ttsPrefs.gsv.apiBaseUrl.replace(/^https?:\/\//i, '');
+      text = `已配置 · ${host}${this.ttsPrefs.gsv.apiMode === 'auto' ? ' · 自动识别接口' : ''}`;
+      tone = 'ok';
+    }
+    hint.textContent = text;
+    hint.classList.toggle('is-error', tone === 'error');
+    hint.classList.toggle('is-ok', tone === 'ok');
+    this.syncGsvTestButton();
+  }
+
+  syncGsvTestButton() {
+    const button = this.dom.ttsGsvTest;
+    if (!button) return;
+    const inputValue = this.dom.ttsGsvApi ? this.dom.ttsGsvApi.value : this.ttsPrefs.gsv.apiBaseUrl;
+    button.disabled = !String(inputValue || '').trim()
+      || this.gsvTest.running
+      || this.narration.active
+      || this.narration.loading;
+  }
+
+  handleTtsEngineChange(engine) {
+    const next = engine === 'gpt-sovits' ? 'gpt-sovits' : 'system';
+    if (next === this.ttsPrefs.engine) return;
+    this.stopNarration({ silent: true });
+    this.systemTts.stop();
+    this.gsvTts.stop();
+    this.gsvTest = { running: false, message: '', tone: '' };
+    this.ttsPrefs = saveTtsPreferences({ engine: next });
+    this.syncTtsEngineUI();
+    this.syncGsvConfigUI();
+    this.syncNarrationUI();
+    if (next === 'system') {
+      if (!this.ttsVoicesLoaded || this.ttsVoicesError) this.loadTtsVoices();
+      else this.updateTtsVoiceUI();
+      return;
+    }
+    this.updateTtsVoiceUI();
+    if (!this.gsvTts.supported) {
+      requestAnimationFrame(() => this.dom.ttsGsvApi?.focus({ preventScroll: true }));
+    }
+  }
+
+  handleGsvFieldChange(field) {
+    if (!field) return;
+    const sources = {
+      apiBaseUrl: this.dom.ttsGsvApi,
+      apiMode: this.dom.ttsGsvApiMode,
+      refAudioPath: this.dom.ttsGsvRefAudio,
+      promptText: this.dom.ttsGsvPromptText,
+      promptLang: this.dom.ttsGsvPromptLang,
+      textLang: this.dom.ttsGsvTextLang,
+      timeout: this.dom.ttsGsvTimeout,
+      gptModelPath: this.dom.ttsGsvGptModel,
+      sovitsModelPath: this.dom.ttsGsvSovitsModel,
+    };
+    const source = sources[field];
+    if (!source) return;
+    const before = this.ttsPrefs.gsv;
+    const value = field === 'timeout' ? Number(source.value) : source.value;
+    this.ttsPrefs = saveTtsPreferences({ gsv: { [field]: value } });
+    const changed = JSON.stringify(before) !== JSON.stringify(this.ttsPrefs.gsv);
+    if (!changed) {
+      this.syncGsvConfigUI();
+      return;
+    }
+    this.gsvTest = { running: false, message: '', tone: '' };
+    this.gsvTts.onConfigChanged();
+    this.syncGsvConfigUI();
+    this.updateTtsVoiceUI();
+    this.syncNarrationUI();
+    if (this.ttsPrefs.engine === 'gpt-sovits' && this.narration.active && this.narration.playing) {
+      this.restartNarrationSpeech();
+    }
+  }
+
+  async testGsvConnection() {
+    if (this.gsvTest.running || this.narration.active || this.narration.loading) return;
+    if (this.ttsPrefs.engine !== 'gpt-sovits') return;
+    const issue = gsvConfigIssue(this.ttsPrefs.gsv);
+    if (issue) {
+      this.gsvTest = { running: false, message: issue, tone: 'error' };
+      this.updateGsvHint();
+      return;
+    }
+    this.gsvTts.unlock();
+    this.gsvTest = { running: true, message: '正在连接并合成测试语音…', tone: '' };
+    this.updateGsvHint();
+    try {
+      const result = await this.gsvTts.speak('你好，我是墨阅，正在为你朗读。', { rate: 1 });
+      if (result.status === 'error') throw result.error;
+      if (result.status === 'cancelled') {
+        this.gsvTest = { running: false, message: '测试已取消。', tone: '' };
+      } else {
+        this.gsvTest = { running: false, message: '测试成功，已播放示例语音。', tone: 'ok' };
+      }
+    } catch (error) {
+      this.gsvTest = { running: false, message: describeSpeechError(error), tone: 'error' };
+    } finally {
+      this.gsvTest.running = false;
+      this.updateGsvHint();
+      this.syncNarrationUI();
+    }
+  }
+
   syncTtsRateUI() {
     if (this.dom.ttsRateRange) this.dom.ttsRateRange.value = String(this.ttsPrefs.rate);
     if (this.dom.ttsRateValue) {
@@ -2043,6 +2269,7 @@ export class Reader {
 
   async startNarration() {
     if (!this.isOpen || !this.book || !this.chapter || this.isLoading || this.narration.loading) return;
+    if (this.ttsPrefs.engine === 'gpt-sovits') this.gsvTts.unlock();
     if (!this.tts.supported) {
       this.narration.error = this.tts.unsupportedMessage;
       this.syncNarrationUI();
@@ -2056,10 +2283,11 @@ export class Reader {
 
     const token = ++this.narration.token;
     this.narration.loading = true;
+    this.narration.synthesizing = false;
     this.narration.error = '';
     this.syncNarrationUI();
     try {
-      if (!this.ttsVoicesLoaded) await this.loadTtsVoices();
+      if (this.ttsPrefs.engine === 'system' && !this.ttsVoicesLoaded) await this.loadTtsVoices();
       if (token !== this.narration.token || !this.isOpen || !this.narration.loading) return;
       const script = buildNarrationScript(this.content);
       if (!script.chunks.length) {
@@ -2091,6 +2319,7 @@ export class Reader {
     } catch (error) {
       if (token !== this.narration.token) return;
       this.narration.loading = false;
+      this.narration.synthesizing = false;
       this.narration.error = describeSpeechError(error);
       this.syncNarrationUI();
       toast(this.narration.error, { type: 'error', duration: 6000 });
@@ -2100,6 +2329,7 @@ export class Reader {
   pauseNarration() {
     if (!this.narration.active || !this.narration.playing) return;
     this.narration.playing = false;
+    this.narration.synthesizing = false;
     this.narration.token += 1;
     this.tts.stop();
     this.syncNarrationUI();
@@ -2114,6 +2344,7 @@ export class Reader {
     }
     this.narration.error = '';
     this.narration.playing = true;
+    this.narration.synthesizing = false;
     this.narration.token += 1;
     this.syncNarrationUI();
     this.runNarrationLoop(this.narration.token);
@@ -2129,6 +2360,7 @@ export class Reader {
       return;
     }
     this.narration.token += 1;
+    this.narration.synthesizing = false;
     this.tts.stop();
     const token = this.narration.token;
     this.syncNarrationUI();
@@ -2141,6 +2373,7 @@ export class Reader {
     this.narration.active = false;
     this.narration.playing = false;
     this.narration.loading = false;
+    this.narration.synthesizing = false;
     this.narration.chunks = [];
     this.narration.index = 0;
     this.narration.chapterTitle = '';
@@ -2170,16 +2403,27 @@ export class Reader {
         continue;
       }
       this.followNarrationChunk(chunk);
+      const isGsv = this.ttsPrefs.engine === 'gpt-sovits';
+      if (isGsv) this.narration.synthesizing = true;
       this.syncNarrationUI();
       let result;
       try {
         result = await this.tts.speak(chunk.text, {
           rate: this.ttsPrefs.rate,
           voiceURI: this.ttsPrefs.voiceURI,
+          onStart: () => {
+            this.narration.synthesizing = false;
+            const next = this.narration.chunks[this.narration.index + 1];
+            if (next && this.ttsPrefs.engine === 'gpt-sovits' && typeof this.tts.prefetch === 'function') {
+              this.tts.prefetch(next.text, { rate: this.ttsPrefs.rate });
+            }
+            this.syncNarrationUI();
+          },
         });
       } catch (error) {
         result = { status: 'error', error };
       }
+      this.narration.synthesizing = false;
       if (token !== this.narration.token || !this.narration.active || !this.narration.playing) return;
       if (result.status === 'cancelled') return;
       if (result.status === 'error') {
@@ -2198,6 +2442,7 @@ export class Reader {
       return false;
     }
     this.narration.loading = true;
+    this.narration.synthesizing = false;
     this.narration.error = '';
     this.clearTtsHighlight();
     this.syncNarrationUI();
@@ -2239,6 +2484,7 @@ export class Reader {
   failNarration(error, { notify = true } = {}) {
     this.narration.playing = false;
     this.narration.loading = false;
+    this.narration.synthesizing = false;
     this.narration.token += 1;
     this.narration.error = describeSpeechError(error);
     this.tts.stop();
@@ -2348,6 +2594,7 @@ export class Reader {
       let text = '准备朗读';
       if (loading) text = '正在准备';
       else if (state.active && state.error) text = '朗读中断';
+      else if (state.active && state.synthesizing) text = '正在合成';
       else if (state.active && state.playing) text = '正在朗读';
       else if (state.active) text = '已暂停';
       dom.ttsNowState.textContent = text;
@@ -2367,8 +2614,8 @@ export class Reader {
     if (dom.ttsNowSentence) {
       let text = '点击开始，将从当前阅读位置朗读。';
       if (loading) text = '正在加载章节…';
-      else if (state.active && current) text = `「${current.text}」`;
       else if (state.active && state.error) text = state.error;
+      else if (state.active && current) text = `「${current.text}」`;
       else if (state.active) text = '等待下一段文字…';
       dom.ttsNowSentence.textContent = text;
     }
@@ -2381,11 +2628,12 @@ export class Reader {
       let text = '已暂停';
       if (loading) text = '正在准备';
       else if (state.error) text = '朗读中断';
+      else if (state.active && state.synthesizing) text = '正在合成';
       else if (state.active && state.playing) text = '正在朗读';
       dom.ttsDockStatus.textContent = text;
     }
     if (dom.ttsDockMeta) {
-      let meta = '系统语音';
+      let meta = this.tts?.engineName || '系统语音';
       if (state.active && state.chunks.length) {
         meta = `${chapterTitle || '当前章节'} · ${Math.min(state.index + 1, state.chunks.length)}/${state.chunks.length} 句`;
       } else if (loading) {
@@ -2394,13 +2642,14 @@ export class Reader {
       dom.ttsDockMeta.textContent = meta;
     }
     if (dom.ttsDockToggle) {
-      dom.ttsDockToggle.disabled = loading;
+      dom.ttsDockToggle.disabled = loading || !this.tts.supported;
       const label = state.active && state.playing ? '暂停朗读' : '继续朗读';
       dom.ttsDockToggle.title = label;
       dom.ttsDockToggle.setAttribute('aria-label', label);
       const use = dom.ttsDockToggle.querySelector('use');
       if (use) use.setAttribute('href', state.active && state.playing && !loading ? '#icon-pause' : '#icon-play');
     }
+    this.syncGsvTestButton();
   }
 
   /* ---------------------------- interactions ---------------------------- */
