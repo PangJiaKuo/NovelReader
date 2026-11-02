@@ -3129,6 +3129,15 @@ kbd {
   margin-top: 10px;
 }
 
+.tts-compat-toggle {
+  padding: 12px 0 2px;
+}
+
+.tts-field input:disabled {
+  opacity: 0.52;
+  cursor: not-allowed;
+}
+
 .tts-field-note {
   margin: 0;
   color: color-mix(in srgb, var(--reader-text) 34%, transparent);

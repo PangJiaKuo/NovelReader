@@ -35,6 +35,7 @@ import {
   findVoice,
   gsvConfigIssue,
   loadTtsPreferences,
+  normalizeSleepMinutes,
   saveTtsPreferences,
   SystemSpeech,
   voiceOptionLabel,
@@ -113,6 +114,12 @@ export class Reader {
       chapterTitle: '',
       error: '',
     };
+    this.sleepTimer = {
+      running: false,
+      deadline: 0,
+      remainingMs: normalizeSleepMinutes(this.ttsPrefs.sleepMinutes) * 60000,
+      interval: null,
+    };
     this.systemTts = new SystemSpeech({
       onVoicesChanged: (voices) => {
         if (!this.isOpen) return;
@@ -144,6 +151,8 @@ export class Reader {
     this.bindEvents();
     this.syncTtsEngineUI();
     this.syncGsvConfigUI();
+    this.syncTtsRateUI();
+    this.syncSleepTimerUI();
   }
 
   get tts() {
@@ -208,10 +217,14 @@ export class Reader {
       ttsGsvTimeout: 'ttsGsvTimeout',
       ttsGsvGptModel: 'ttsGsvGptModel',
       ttsGsvSovitsModel: 'ttsGsvSovitsModel',
+      ttsGsvCompat: 'ttsGsvCompat',
       ttsGsvTest: 'ttsGsvTest',
       ttsGsvHint: 'ttsGsvHint',
       ttsRateRange: 'ttsRateRange',
       ttsRateValue: 'ttsRateValue',
+      ttsSleepRange: 'ttsSleepRange',
+      ttsSleepValue: 'ttsSleepValue',
+      ttsSleepHint: 'ttsSleepHint',
       ttsDock: 'ttsDock',
       ttsDockStatus: 'ttsDockStatus',
       ttsDockMeta: 'ttsDockMeta',
@@ -347,9 +360,12 @@ export class Reader {
     for (const [key, field] of gsvFields) {
       dom[key]?.addEventListener('change', () => this.handleGsvFieldChange(field));
     }
+    dom.ttsGsvCompat?.addEventListener('click', () => this.toggleGsvCompat());
     dom.ttsGsvApi?.addEventListener('input', () => this.syncGsvTestButton());
     dom.ttsRateRange?.addEventListener('input', () => this.handleTtsRateChange(false));
     dom.ttsRateRange?.addEventListener('change', () => this.handleTtsRateChange(true));
+    dom.ttsSleepRange?.addEventListener('input', () => this.handleSleepMinutesChange(false));
+    dom.ttsSleepRange?.addEventListener('change', () => this.handleSleepMinutesChange(true));
     dom.hiddenHint?.addEventListener('click', () => this.setChromeHidden(false));
     dom.scrim?.addEventListener('click', () => this.closePanels());
     dom.chapterEndNext?.addEventListener('click', () => this.goToChapter(this.chapterIndex + 1));
@@ -1925,6 +1941,7 @@ export class Reader {
     this.syncGsvConfigUI();
     this.syncNarrationUI();
     this.syncTtsRateUI();
+    this.syncSleepTimerUI();
     if (this.ttsPrefs.engine === 'gpt-sovits') {
       this.updateTtsVoiceUI();
       return;
@@ -2111,6 +2128,12 @@ export class Reader {
     setValue(this.dom.ttsGsvTimeout, String(config.timeout));
     setValue(this.dom.ttsGsvGptModel, config.gptModelPath);
     setValue(this.dom.ttsGsvSovitsModel, config.sovitsModelPath);
+    if (this.dom.ttsGsvGptModel) this.dom.ttsGsvGptModel.disabled = Boolean(config.compatPlayback);
+    if (this.dom.ttsGsvSovitsModel) this.dom.ttsGsvSovitsModel.disabled = Boolean(config.compatPlayback);
+    if (this.dom.ttsGsvCompat) {
+      this.dom.ttsGsvCompat.setAttribute('aria-checked', String(Boolean(config.compatPlayback)));
+      this.dom.ttsGsvCompat.classList.toggle('is-on', Boolean(config.compatPlayback));
+    }
     this.updateGsvHint();
   }
 
@@ -2130,7 +2153,10 @@ export class Reader {
       tone = 'error';
     } else {
       const host = this.ttsPrefs.gsv.apiBaseUrl.replace(/^https?:\/\//i, '');
-      text = `已配置 · ${host}${this.ttsPrefs.gsv.apiMode === 'auto' ? ' · 自动识别接口' : ''}`;
+      const modeLabel = this.ttsPrefs.gsv.compatPlayback
+        ? ' · 兼容播放（不切换模型）'
+        : (this.ttsPrefs.gsv.apiMode === 'auto' ? ' · 自动识别接口' : '');
+      text = `已配置 · ${host}${modeLabel}`;
       tone = 'ok';
     }
     hint.textContent = text;
@@ -2204,6 +2230,19 @@ export class Reader {
     }
   }
 
+  toggleGsvCompat() {
+    const compatPlayback = !this.ttsPrefs.gsv.compatPlayback;
+    this.ttsPrefs = saveTtsPreferences({ gsv: { compatPlayback } });
+    this.gsvTest = { running: false, message: '', tone: '' };
+    this.gsvTts.onConfigChanged();
+    this.syncGsvConfigUI();
+    this.updateTtsVoiceUI();
+    this.syncNarrationUI();
+    if (this.ttsPrefs.engine === 'gpt-sovits' && this.narration.active && this.narration.playing) {
+      this.restartNarrationSpeech();
+    }
+  }
+
   async testGsvConnection() {
     if (this.gsvTest.running || this.narration.active || this.narration.loading) return;
     if (this.ttsPrefs.engine !== 'gpt-sovits') return;
@@ -2255,6 +2294,132 @@ export class Reader {
     this.ttsPrefs = saveTtsPreferences({ voiceURI });
     if (this.narration.active && this.narration.playing) this.restartNarrationSpeech();
     else this.syncNarrationUI();
+  }
+
+  formatSleepRemaining(ms) {
+    const total = Math.max(0, Math.ceil(Number(ms || 0) / 1000));
+    const minutes = Math.floor(total / 60);
+    const seconds = total % 60;
+    return `${minutes}:${String(seconds).padStart(2, '0')}`;
+  }
+
+  sleepTimerDockLabel() {
+    if (!this.sleepTimer.running) return '';
+    return `${this.formatSleepRemaining(this.sleepTimer.remainingMs)} 后停止`;
+  }
+
+  syncSleepTimerUI() {
+    const minutes = normalizeSleepMinutes(this.ttsPrefs.sleepMinutes);
+    const range = this.dom.ttsSleepRange;
+    if (range && document.activeElement !== range) range.value = String(minutes);
+    if (this.dom.ttsSleepValue) {
+      this.dom.ttsSleepValue.textContent = minutes ? `${minutes} 分钟` : '关闭';
+    }
+    const hint = this.dom.ttsSleepHint;
+    if (!hint) return;
+    let text = '';
+    if (!minutes) {
+      text = '关闭。拖动到 1–180 分钟，开始朗读后自动停止。';
+    } else if (this.sleepTimer.running) {
+      text = `还有 ${this.formatSleepRemaining(this.sleepTimer.remainingMs)} 自动停止。`;
+    } else if (this.narration.active && !this.narration.playing) {
+      text = `计时已暂停，继续朗读后还剩 ${this.formatSleepRemaining(this.sleepTimer.remainingMs)}。`;
+    } else if (this.narration.loading) {
+      text = `准备好后开始计时，${minutes} 分钟后自动停止。`;
+    } else {
+      text = `开始朗读后 ${minutes} 分钟自动停止。`;
+    }
+    hint.textContent = text;
+    hint.classList.toggle('is-ok', Boolean(minutes) && this.sleepTimer.running);
+  }
+
+  handleSleepMinutesChange(commit = false) {
+    const minutes = normalizeSleepMinutes(this.dom.ttsSleepRange?.value);
+    this.ttsPrefs = { ...this.ttsPrefs, sleepMinutes: minutes };
+    this.syncSleepTimerUI();
+    if (!commit) return;
+    this.ttsPrefs = saveTtsPreferences({ sleepMinutes: minutes });
+    this.applySleepMinutes();
+  }
+
+  applySleepMinutes() {
+    const minutes = normalizeSleepMinutes(this.ttsPrefs.sleepMinutes);
+    this.stopSleepTicker();
+    this.sleepTimer.running = false;
+    this.sleepTimer.deadline = 0;
+    this.sleepTimer.remainingMs = minutes * 60000;
+    if (this.narration.active && this.narration.playing) this.startSleepTimer();
+    else this.syncSleepTimerUI();
+  }
+
+  resetSleepTimer() {
+    this.stopSleepTicker();
+    this.sleepTimer.running = false;
+    this.sleepTimer.deadline = 0;
+    this.sleepTimer.remainingMs = normalizeSleepMinutes(this.ttsPrefs.sleepMinutes) * 60000;
+    this.syncSleepTimerUI();
+  }
+
+  startSleepTimer() {
+    const minutes = normalizeSleepMinutes(this.ttsPrefs.sleepMinutes);
+    this.stopSleepTicker();
+    if (!minutes) {
+      this.sleepTimer.running = false;
+      this.sleepTimer.deadline = 0;
+      this.sleepTimer.remainingMs = 0;
+      this.syncSleepTimerUI();
+      return;
+    }
+    if (!this.sleepTimer.remainingMs || this.sleepTimer.remainingMs > minutes * 60000) {
+      this.sleepTimer.remainingMs = minutes * 60000;
+    }
+    this.sleepTimer.deadline = Date.now() + this.sleepTimer.remainingMs;
+    this.sleepTimer.running = true;
+    this.sleepTimer.interval = setInterval(() => this.tickSleepTimer(), 1000);
+    this.syncSleepTimerUI();
+  }
+
+  pauseSleepTimer() {
+    if (!this.sleepTimer.running) {
+      this.syncSleepTimerUI();
+      return;
+    }
+    this.sleepTimer.remainingMs = Math.max(0, this.sleepTimer.deadline - Date.now());
+    this.sleepTimer.running = false;
+    this.sleepTimer.deadline = 0;
+    this.stopSleepTicker();
+    this.syncSleepTimerUI();
+  }
+
+  stopSleepTicker() {
+    if (this.sleepTimer.interval) clearInterval(this.sleepTimer.interval);
+    this.sleepTimer.interval = null;
+  }
+
+  tickSleepTimer() {
+    if (!this.sleepTimer.running) return;
+    const remaining = Math.max(0, this.sleepTimer.deadline - Date.now());
+    if (remaining <= 0) {
+      this.expireSleepTimer();
+      return;
+    }
+    this.sleepTimer.remainingMs = remaining;
+    this.syncSleepTimerUI();
+  }
+
+  expireSleepTimer() {
+    this.stopSleepTicker();
+    this.sleepTimer.running = false;
+    this.sleepTimer.deadline = 0;
+    this.sleepTimer.remainingMs = 0;
+    const wasActive = this.narration.active || this.narration.loading;
+    if (!wasActive) {
+      this.resetSleepTimer();
+      return;
+    }
+    this.stopNarration({ silent: true });
+    this.updateProgressUI();
+    toast('定时停止：朗读已自动停止。', { type: 'info', duration: 5000 });
   }
 
   toggleNarration() {
@@ -2313,6 +2478,8 @@ export class Reader {
       this.narration.index = clamp(index, 0, script.chunks.length - 1);
       this.narration.chapterIndex = this.chapterIndex;
       this.narration.chapterTitle = this.chapter?.title || this.chapterMeta(this.chapterIndex).title || '';
+      this.resetSleepTimer();
+      this.startSleepTimer();
       this.root.classList.add('tts-active');
       this.syncNarrationUI();
       this.runNarrationLoop(token);
@@ -2332,6 +2499,7 @@ export class Reader {
     this.narration.synthesizing = false;
     this.narration.token += 1;
     this.tts.stop();
+    this.pauseSleepTimer();
     this.syncNarrationUI();
   }
 
@@ -2346,6 +2514,7 @@ export class Reader {
     this.narration.playing = true;
     this.narration.synthesizing = false;
     this.narration.token += 1;
+    this.startSleepTimer();
     this.syncNarrationUI();
     this.runNarrationLoop(this.narration.token);
   }
@@ -2379,6 +2548,7 @@ export class Reader {
     this.narration.chapterTitle = '';
     this.narration.error = '';
     this.clearTtsHighlight();
+    this.resetSleepTimer();
     if (wasActive) this.tts.stop();
     this.root.classList.remove('tts-active');
     this.syncNarrationUI();
@@ -2488,6 +2658,7 @@ export class Reader {
     this.narration.token += 1;
     this.narration.error = describeSpeechError(error);
     this.tts.stop();
+    this.pauseSleepTimer();
     this.syncNarrationUI();
     if (notify) toast(this.narration.error, { type: 'error', duration: 6500 });
   }
@@ -2636,6 +2807,8 @@ export class Reader {
       let meta = this.tts?.engineName || '系统语音';
       if (state.active && state.chunks.length) {
         meta = `${chapterTitle || '当前章节'} · ${Math.min(state.index + 1, state.chunks.length)}/${state.chunks.length} 句`;
+        const sleep = this.sleepTimerDockLabel();
+        if (sleep) meta += ` · ${sleep}`;
       } else if (loading) {
         meta = '正在读取章节…';
       }

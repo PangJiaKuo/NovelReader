@@ -533,7 +533,7 @@ async function serveStatic(req, res, pathname) {
       "img-src 'self' data: blob: https: http:",
       "font-src 'self' data:",
       "connect-src 'self' https: http:",
-      "media-src 'self' data: blob:",
+      "media-src 'self' data: blob: https: http:",
       "object-src 'none'",
       "base-uri 'self'",
       "form-action 'self'",

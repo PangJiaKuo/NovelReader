@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import {
   clampSpeechRate,
   inferSpeechLanguage,
+  normalizeSleepMinutes,
   normalizeVoices,
   splitSpeechText,
   SystemSpeech,
@@ -57,6 +58,16 @@ test('speech rate and language helpers are defensive', () => {
   assert.equal(clampSpeechRate(1.234), 1.25);
   assert.equal(inferSpeechLanguage('这是一段中文。'), 'zh-CN');
   assert.equal(inferSpeechLanguage('This is English.'), 'en-US');
+});
+
+test('normalizeSleepMinutes accepts whole minutes and clamps the range', () => {
+  assert.equal(normalizeSleepMinutes(0), 0);
+  assert.equal(normalizeSleepMinutes(''), 0);
+  assert.equal(normalizeSleepMinutes('abc'), 0);
+  assert.equal(normalizeSleepMinutes(-5), 0);
+  assert.equal(normalizeSleepMinutes(15.4), 15);
+  assert.equal(normalizeSleepMinutes(15.6), 16);
+  assert.equal(normalizeSleepMinutes(999), 180);
 });
 
 test('normalizeVoices sorts for display but keeps native indices', () => {

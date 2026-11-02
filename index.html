@@ -524,6 +524,13 @@
                 <p class="tts-field-note">留空时使用服务端当前已加载的模型。填写后会在每次朗读前切换到指定模型。</p>
               </div>
             </details>
+            <button type="button" class="toggle-row tts-compat-toggle" id="ttsGsvCompat" role="switch" aria-checked="false">
+              <span>
+                <strong>兼容播放（无 CORS）</strong>
+                <small>用 GET /tts 交给音频元素播放，适合 APK 和无法添加 CORS 头的服务器。不会自动切换模型；HTTPS 页面仍会被混合内容拦截。</small>
+              </span>
+              <span class="switch-track" aria-hidden="true"><span></span></span>
+            </button>
           </div>
           <p class="tts-hint" id="ttsGsvHint">填写服务器地址、参考音频和参考文本后即可使用。</p>
         </section>
@@ -535,6 +542,16 @@
           </div>
           <input type="range" id="ttsRateRange" min="0.5" max="2" step="0.05" value="1" aria-label="朗读语速">
           <div class="tts-rate-scale"><span>慢</span><span>快</span></div>
+        </section>
+
+        <section class="tts-setting">
+          <div class="tts-setting-head">
+            <label for="ttsSleepRange">定时停止</label>
+            <output id="ttsSleepValue" for="ttsSleepRange">关闭</output>
+          </div>
+          <input type="range" id="ttsSleepRange" min="0" max="180" step="1" value="0" aria-label="多少分钟后自动停止朗读">
+          <div class="tts-rate-scale"><span>关闭</span><span>180 分钟</span></div>
+          <p class="tts-hint" id="ttsSleepHint">关闭。拖动到 1–180 分钟，开始朗读后自动停止。</p>
         </section>
 
         <p class="tts-note">朗读会自动跟随句子翻页并跨章节继续。手动翻页、切换章节或关闭阅读器时会停止朗读。GPT-SoVITS 模式会逐句请求服务器，首次合成可能需要几秒。</p>

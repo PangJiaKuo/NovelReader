@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
+  buildGsvCompatUrl,
   buildGsvRequest,
   GptSoVitsSpeech,
   GsvSpeechError,
@@ -22,6 +23,7 @@ test('normalizeGsvConfig trims paths, normalizes the base URL and clamps timeout
     promptLang: 'JA',
     textLang: 'bad-value',
     timeout: 2,
+    compatPlayback: 1,
     gptModelPath: ' /models/gpt.ckpt ',
     sovitsModelPath: ' /models/sovits.pth ',
   });
@@ -33,6 +35,7 @@ test('normalizeGsvConfig trims paths, normalizes the base URL and clamps timeout
   assert.equal(config.promptLang, 'ja');
   assert.equal(config.textLang, 'auto');
   assert.equal(config.timeout, 5);
+  assert.equal(config.compatPlayback, true);
   assert.equal(config.gptModelPath, '/models/gpt.ckpt');
   assert.equal(config.sovitsModelPath, '/models/sovits.pth');
 });
@@ -72,6 +75,19 @@ test('gsvConfigIssue rejects malformed API URLs', () => {
   );
 });
 
+test('gsvConfigIssue rejects compatibility playback on the api_neko route', () => {
+  assert.match(
+    gsvConfigIssue({
+      apiBaseUrl: 'http://host:9881',
+      apiMode: 'neko',
+      compatPlayback: true,
+      refAudioPath: '/voice.wav',
+      promptText: '参考文本',
+    }),
+    /兼容播放.*\/tts/,
+  );
+});
+
 test('resolveGsvTextLang infers language unless the user forces one', () => {
   assert.equal(resolveGsvTextLang({ textLang: 'auto' }, '这是中文。'), 'zh');
   assert.equal(resolveGsvTextLang({ textLang: 'auto' }, 'これは日本語です。'), 'ja');
@@ -98,6 +114,28 @@ test('buildGsvRequest generates the GPT-SoVITS v2 payload', () => {
   assert.equal(payload.media_type, 'wav');
   assert.equal(payload.streaming_mode, false);
   assert.equal(payload.speed_factor, 1.25);
+});
+
+test('buildGsvCompatUrl builds an encoded GET /tts request', () => {
+  const url = new URL(buildGsvCompatUrl('这是正文。', {
+    apiBaseUrl: 'http://host:9881/',
+    apiMode: 'gsv',
+    compatPlayback: true,
+    refAudioPath: '/voice.wav',
+    promptText: '参考文本',
+    promptLang: 'ja',
+    textLang: 'auto',
+  }, 1.25));
+
+  assert.equal(url.origin, 'http://host:9881');
+  assert.equal(url.pathname, '/tts');
+  assert.equal(url.searchParams.get('text'), '这是正文。');
+  assert.equal(url.searchParams.get('text_lang'), 'zh');
+  assert.equal(url.searchParams.get('ref_audio_path'), '/voice.wav');
+  assert.equal(url.searchParams.get('prompt_text'), '参考文本');
+  assert.equal(url.searchParams.get('prompt_lang'), 'ja');
+  assert.equal(url.searchParams.get('speed_factor'), '1.25');
+  assert.equal(url.searchParams.get('media_type'), 'wav');
 });
 
 test('gsvEndpointCandidates prefers api_neko on port 9881 and supports overrides', () => {

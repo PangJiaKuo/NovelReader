@@ -49,6 +49,7 @@ function configSignature(config) {
     config.promptText,
     config.promptLang,
     config.textLang,
+    config.compatPlayback ? 'compat' : 'standard',
     config.gptModelPath,
     config.sovitsModelPath,
   ].join('\u0001');
@@ -86,6 +87,22 @@ export function buildGsvRequest(text, config, rate = 1) {
     parallel_infer: true,
     seed: -1,
   };
+}
+
+/**
+ * Build a GET /tts URL for the compatibility player. Media elements can load
+ * cross-origin audio without CORS headers, which lets an APK talk to a stock
+ * GPT-SoVITS server that has no CORSMiddleware.
+ */
+export function buildGsvCompatUrl(text, config, rate = 1) {
+  const normalized = normalizeGsvConfig(config);
+  const payload = buildGsvRequest(text, normalized, rate);
+  const params = new URLSearchParams();
+  for (const [key, value] of Object.entries(payload)) {
+    if (value === undefined || value === null) continue;
+    params.set(key, String(value));
+  }
+  return `${joinUrl(normalized.apiBaseUrl, '/tts')}?${params.toString()}`;
 }
 
 function errorDetail(payload) {
@@ -144,6 +161,17 @@ function networkErrorMessage(apiBaseUrl, error) {
     return '无法连接 GPT-SoVITS 服务。请检查 API 地址、服务器是否在线，并确认服务端允许跨域（CORS）。';
   }
   return '无法连接 GPT-SoVITS 服务。请检查 API 地址、网络和服务器状态。';
+}
+
+function compatAudioErrorMessage(audio) {
+  const code = Number(audio?.error?.code) || 0;
+  if (code === 1) return '兼容播放已中止。';
+  if (code === 2) return '兼容播放网络中断。请检查 GPT-SoVITS 服务是否在线。';
+  if (code === 3) return '兼容播放无法解码服务器返回的音频。请确认服务端输出的是 WAV。';
+  if (code === 4) {
+    return '兼容播放无法读取服务器返回的音频。常见原因是接口路径、参考音频路径或模型配置错误；兼容模式无法读取具体 HTTP 状态，请查看服务端日志。';
+  }
+  return '兼容播放失败。请检查服务器状态、参考音频路径和接口格式。';
 }
 
 function sleep(ms) {
@@ -208,6 +236,8 @@ export class GptSoVitsSpeech {
     this.audioContext = null;
     this.source = null;
     this.cache = new Map();
+    this.compatCache = new Map();
+    this.compatAudio = null;
     this.endpointCache = null;
     this.modelKey = '';
     this.modelGpt = '';
@@ -250,6 +280,7 @@ export class GptSoVitsSpeech {
     this.endpointCache = null;
     this.resetModels();
     this.stop();
+    this.clearCompatCache();
   }
 
   resetModels() {
@@ -259,6 +290,7 @@ export class GptSoVitsSpeech {
   }
 
   unlock() {
+    if (this.config.compatPlayback) return;
     try {
       const context = this.ensureAudioContext();
       if (context.state === 'suspended') context.resume().catch(() => {});
@@ -288,6 +320,14 @@ export class GptSoVitsSpeech {
       const oldest = this.cache.keys().next().value;
       this.cache.delete(oldest);
     }
+    while (this.compatCache.size > MAX_CACHE_ENTRIES) {
+      const oldest = this.compatCache.keys().next().value;
+      const task = this.compatCache.get(oldest);
+      this.compatCache.delete(oldest);
+      task?.then((audio) => {
+        if (audio !== this.compatAudio) this.releaseCompatAudio(audio);
+      }).catch(() => {});
+    }
   }
 
   /**
@@ -297,31 +337,40 @@ export class GptSoVitsSpeech {
   prefetch(text, { rate = 1 } = {}) {
     if (!text || !this.supported) return;
     const key = this.cacheKey(text, rate);
-    if (this.cache.has(key)) return;
+    const compat = this.config.compatPlayback;
+    const cache = compat ? this.compatCache : this.cache;
+    if (cache.has(key)) return;
     const controller = new AbortController();
     this.prefetchControllers.add(controller);
-    const task = this.fetchAndDecode(text, rate, controller.signal)
+    const task = (compat
+      ? this.fetchCompatAudio(text, rate, controller.signal)
+      : this.fetchAndDecode(text, rate, controller.signal))
       .catch((error) => {
-        this.cache.delete(key);
+        cache.delete(key);
         throw error;
       })
       .finally(() => {
         this.prefetchControllers.delete(controller);
       });
     task.catch(() => {});
-    this.cache.set(key, task);
+    cache.set(key, task);
     this.trimCache();
   }
 
   getAudio(text, rate, signal) {
     const key = this.cacheKey(text, rate);
-    let task = this.cache.get(key);
+    const compat = this.config.compatPlayback;
+    const cache = compat ? this.compatCache : this.cache;
+    let task = cache.get(key);
     if (!task) {
-      task = this.fetchAndDecode(text, rate, signal).catch((error) => {
-        this.cache.delete(key);
-        throw error;
-      });
-      this.cache.set(key, task);
+      task = (compat
+        ? this.fetchCompatAudio(text, rate, signal)
+        : this.fetchAndDecode(text, rate, signal))
+        .catch((error) => {
+          cache.delete(key);
+          throw error;
+        });
+      cache.set(key, task);
       this.trimCache();
     }
     return task;
@@ -338,10 +387,13 @@ export class GptSoVitsSpeech {
     const request = ++this.request;
     const controller = new AbortController();
     this.activeController = controller;
+    const compat = this.config.compatPlayback;
     try {
-      const buffer = await this.getAudio(String(text), rate, controller.signal);
+      const audio = await this.getAudio(String(text), rate, controller.signal);
       if (request !== this.request || controller.signal.aborted) return { status: 'cancelled' };
-      const result = await this.playBuffer(buffer, onStart, controller.signal);
+      const result = compat
+        ? await this.playCompatAudio(audio, onStart, controller.signal)
+        : await this.playBuffer(audio, onStart, controller.signal);
       if (request !== this.request) return { status: 'cancelled' };
       return result;
     } catch (error) {
@@ -403,6 +455,180 @@ export class GptSoVitsSpeech {
       }
     }
     throw lastError || new GsvSpeechError('语音合成失败，请检查 GPT-SoVITS 服务。');
+  }
+
+  async fetchCompatAudio(text, rate, signal) {
+    const config = this.config;
+    const issue = gsvConfigIssue(config);
+    if (issue) throw new GsvSpeechError(issue);
+    if (isMixedContent(config.apiBaseUrl)) {
+      throw new GsvSpeechError(
+        '当前页面是 HTTPS，浏览器会拦截 HTTP 的 GPT-SoVITS 请求。请改用 Android APK，或给 GPT-SoVITS 配置 HTTPS 反向代理。',
+      );
+    }
+    if (typeof Audio !== 'function') {
+      throw new GsvSpeechError('当前环境不支持音频元素播放，请安装 Android APK 或使用支持音频的浏览器。');
+    }
+    if (signal?.aborted) throw new GsvSpeechError('朗读已停止。');
+
+    const audio = new Audio();
+    audio.preload = 'auto';
+    audio.src = buildGsvCompatUrl(text, config, rate);
+    const timeout = Math.max(1, Number(config.timeout) || 60);
+    let timer = null;
+
+    return new Promise((resolve, reject) => {
+      let settled = false;
+      const cleanup = () => {
+        if (timer) clearTimeout(timer);
+        audio.removeEventListener('loadedmetadata', onReady);
+        audio.removeEventListener('canplay', onReady);
+        audio.removeEventListener('error', onError);
+        signal?.removeEventListener?.('abort', onAbort);
+      };
+      const finish = (value, error) => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        if (error) {
+          this.releaseCompatAudio(audio);
+          reject(error);
+        } else {
+          resolve(value);
+        }
+      };
+      const onReady = () => finish(audio);
+      const onError = () => finish(null, new GsvSpeechError(compatAudioErrorMessage(audio)));
+      const onAbort = () => finish(null, new GsvSpeechError('朗读已停止。'));
+
+      audio.addEventListener('loadedmetadata', onReady, { once: true });
+      audio.addEventListener('canplay', onReady, { once: true });
+      audio.addEventListener('error', onError, { once: true });
+      signal?.addEventListener?.('abort', onAbort, { once: true });
+      timer = setTimeout(() => {
+        finish(null, new GsvSpeechError(
+          `GPT-SoVITS 请求超时（${timeout} 秒）。可以调高超时时间或缩短单次文本。`,
+        ));
+      }, timeout * 1000);
+      try {
+        audio.load();
+      } catch (error) {
+        finish(null, new GsvSpeechError('兼容播放无法加载音频，请检查服务器地址。', { cause: error }));
+      }
+    });
+  }
+
+  async playCompatAudio(audio, onStart, signal) {
+    if (signal?.aborted) return { status: 'cancelled' };
+    this.compatAudio = audio;
+    return new Promise((resolve) => {
+      let settled = false;
+      let started = false;
+      const cleanup = () => {
+        audio.removeEventListener('ended', onEnded);
+        audio.removeEventListener('error', onError);
+        signal?.removeEventListener?.('abort', cancel);
+      };
+      const finish = (result) => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        if (this.compatAudio === audio) this.compatAudio = null;
+        if (this.activeCancel === cancel) this.activeCancel = null;
+        resolve(result);
+      };
+      const cancel = () => {
+        try {
+          audio.pause();
+          audio.currentTime = 0;
+        } catch {
+          /* already stopped */
+        }
+        finish({ status: 'cancelled' });
+      };
+      const onEnded = () => finish({ status: 'done' });
+      const onError = () => finish({
+        status: 'error',
+        error: new GsvSpeechError(compatAudioErrorMessage(audio)),
+      });
+      const markStarted = () => {
+        if (settled || started) return;
+        started = true;
+        try {
+          onStart?.();
+        } catch {
+          /* prefetch is an optimization and must not interrupt playback */
+        }
+      };
+
+      this.activeCancel = cancel;
+      signal?.addEventListener?.('abort', cancel, { once: true });
+      audio.addEventListener('ended', onEnded, { once: true });
+      audio.addEventListener('error', onError, { once: true });
+      try {
+        audio.currentTime = 0;
+      } catch {
+        /* metadata may not be available yet */
+      }
+      let playPromise = null;
+      try {
+        playPromise = audio.play();
+      } catch (error) {
+        finish({
+          status: 'error',
+          error: new GsvSpeechError('兼容播放无法开始，请再次点击朗读。', { cause: error }),
+        });
+        return;
+      }
+      if (playPromise && typeof playPromise.then === 'function') {
+        playPromise.then(markStarted).catch((error) => {
+          if (settled) return;
+          if (error?.name === 'AbortError') {
+            finish({ status: 'cancelled' });
+            return;
+          }
+          const message = error?.name === 'NotAllowedError'
+            ? '浏览器阻止了音频播放，请再次点击朗读。'
+            : '兼容播放无法开始，请检查服务器返回的音频格式。';
+          finish({ status: 'error', error: new GsvSpeechError(message, { cause: error }) });
+        });
+      } else {
+        markStarted();
+      }
+    });
+  }
+
+  releaseCompatAudio(audio) {
+    if (!audio) return;
+    try {
+      audio.pause();
+    } catch {
+      /* already stopped */
+    }
+    try {
+      audio.removeAttribute('src');
+      audio.load();
+    } catch {
+      /* ignore cleanup failures */
+    }
+  }
+
+  clearCompatCache() {
+    const tasks = Array.from(this.compatCache.values());
+    this.compatCache.clear();
+    for (const task of tasks) {
+      task?.then((audio) => {
+        if (audio !== this.compatAudio) this.releaseCompatAudio(audio);
+      }).catch(() => {});
+    }
+    if (this.compatAudio) {
+      try {
+        this.compatAudio.pause();
+      } catch {
+        /* ignore */
+      }
+      this.compatAudio = null;
+    }
   }
 
   async ensureModels(config, endpoint, signal) {
@@ -603,11 +829,16 @@ export class GptSoVitsSpeech {
       try { this.source.stop(); } catch { /* ignore */ }
       this.source = null;
     }
+    if (this.compatAudio) {
+      try { this.compatAudio.pause(); } catch { /* ignore */ }
+      this.compatAudio = null;
+    }
   }
 
   dispose() {
     this.stop();
     this.cache.clear();
+    this.clearCompatCache();
     this.prefetchControllers.clear();
     if (this.audioContext) {
       try { this.audioContext.close(); } catch { /* ignore */ }

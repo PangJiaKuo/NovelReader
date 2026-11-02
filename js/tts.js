@@ -11,6 +11,7 @@ const CLOSERS = /[”’"」』）)\]】》]/;
 const SPLIT_POINT_RE = /[，,、：:；;\s]/;
 
 export const GSV_API_MODES = Object.freeze(['auto', 'gsv', 'neko']);
+export const SLEEP_TIMER_MAX = 180;
 export const GSV_LANGUAGES = Object.freeze([
   'auto',
   'auto_yue',
@@ -33,6 +34,7 @@ export const DEFAULT_GSV_CONFIG = Object.freeze({
   promptLang: 'auto',
   textLang: 'auto',
   timeout: 60,
+  compatPlayback: false,
   gptModelPath: '',
   sovitsModelPath: '',
 });
@@ -41,6 +43,7 @@ export const DEFAULT_TTS_PREFS = Object.freeze({
   engine: 'system',
   voiceURI: '',
   rate: 1,
+  sleepMinutes: 0,
   gsv: DEFAULT_GSV_CONFIG,
 });
 
@@ -65,6 +68,12 @@ export function clampGsvTimeout(value) {
   return Math.min(180, Math.max(5, Math.round(timeout)));
 }
 
+export function normalizeSleepMinutes(value) {
+  const minutes = Number(value);
+  if (!Number.isFinite(minutes) || minutes <= 0) return 0;
+  return Math.min(SLEEP_TIMER_MAX, Math.max(1, Math.round(minutes)));
+}
+
 export function normalizeGsvLanguage(value, fallback = 'auto') {
   const lang = String(value || '').trim().toLowerCase().replace(/-/g, '_');
   return GSV_LANGUAGES.includes(lang) ? lang : fallback;
@@ -81,6 +90,7 @@ export function normalizeGsvConfig(raw) {
     promptLang: normalizeGsvLanguage(source.promptLang, DEFAULT_GSV_CONFIG.promptLang),
     textLang: normalizeGsvLanguage(source.textLang, DEFAULT_GSV_CONFIG.textLang),
     timeout: clampGsvTimeout(source.timeout),
+    compatPlayback: Boolean(source.compatPlayback),
     gptModelPath: String(source.gptModelPath || '').trim(),
     sovitsModelPath: String(source.sovitsModelPath || '').trim(),
   };
@@ -98,6 +108,9 @@ export function gsvConfigIssue(config) {
   if (!url.hostname) return 'API 地址格式不正确，请填写完整的服务地址。';
   if (!/^https?:$/.test(url.protocol)) {
     return 'API 地址需要以 http:// 或 https:// 开头。';
+  }
+  if (value.compatPlayback && value.apiMode === 'neko') {
+    return '兼容播放只支持标准 GPT-SoVITS 的 /tts 接口，请把接口格式改为 GPT-SoVITS v2 (/tts)。';
   }
   if (!value.refAudioPath) return '请填写服务器上的参考音频路径。';
   if (!value.promptText) return '请填写参考音频里说的原话，否则合成质量会明显下降。';
@@ -124,6 +137,7 @@ export function loadTtsPreferences() {
       engine: parsed.engine === 'gpt-sovits' ? 'gpt-sovits' : 'system',
       voiceURI: typeof parsed.voiceURI === 'string' ? parsed.voiceURI : '',
       rate: clampSpeechRate(parsed.rate),
+      sleepMinutes: normalizeSleepMinutes(parsed.sleepMinutes),
       gsv: normalizeGsvConfig(parsed.gsv),
     };
   } catch {
@@ -143,6 +157,7 @@ export function saveTtsPreferences(patch = {}) {
   next.engine = next.engine === 'gpt-sovits' ? 'gpt-sovits' : 'system';
   next.rate = clampSpeechRate(next.rate);
   next.voiceURI = typeof next.voiceURI === 'string' ? next.voiceURI : '';
+  next.sleepMinutes = normalizeSleepMinutes(next.sleepMinutes);
   next.gsv = normalizeGsvConfig(
     patch && patch.gsv && typeof patch.gsv === 'object'
       ? { ...current.gsv, ...patch.gsv }
