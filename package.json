@@ -1,6 +1,6 @@
 {
   "name": "moread",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "private": true,
   "type": "module",
   "description": "墨阅 Moread — local-first EPUB/TXT reader PWA with optional cloud progress sync.",

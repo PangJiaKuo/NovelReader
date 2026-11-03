@@ -2232,7 +2232,11 @@ export class Reader {
 
   toggleGsvCompat() {
     const compatPlayback = !this.ttsPrefs.gsv.compatPlayback;
-    this.ttsPrefs = saveTtsPreferences({ gsv: { compatPlayback } });
+    const gsvPatch = { compatPlayback };
+    // Compatibility playback is deliberately limited to the stock GET /tts
+    // route so media elements can load it without a CORS preflight.
+    if (compatPlayback) gsvPatch.apiMode = 'gsv';
+    this.ttsPrefs = saveTtsPreferences({ gsv: gsvPatch });
     this.gsvTest = { running: false, message: '', tone: '' };
     this.gsvTts.onConfigChanged();
     this.syncGsvConfigUI();
@@ -2370,8 +2374,12 @@ export class Reader {
       this.syncSleepTimerUI();
       return;
     }
-    if (!this.sleepTimer.remainingMs || this.sleepTimer.remainingMs > minutes * 60000) {
+    if (this.sleepTimer.remainingMs > minutes * 60000) {
       this.sleepTimer.remainingMs = minutes * 60000;
+    }
+    if (this.sleepTimer.remainingMs <= 0) {
+      this.expireSleepTimer();
+      return;
     }
     this.sleepTimer.deadline = Date.now() + this.sleepTimer.remainingMs;
     this.sleepTimer.running = true;

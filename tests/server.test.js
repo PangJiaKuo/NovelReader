@@ -238,6 +238,7 @@ test('static host serves the app with security headers', async () => {
   assert.equal(response.status, 200);
   assert.match(response.headers.get('content-type'), /text\/html/);
   assert.match(response.headers.get('content-security-policy'), /default-src 'self'/);
+  assert.match(response.headers.get('content-security-policy'), /media-src [^;]*http:/);
   assert.equal(response.headers.get('x-content-type-options'), 'nosniff');
   const html = await response.text();
   assert.match(html, /墨阅 · 私人阅读空间/);

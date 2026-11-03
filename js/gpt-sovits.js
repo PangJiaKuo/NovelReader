@@ -169,7 +169,7 @@ function compatAudioErrorMessage(audio) {
   if (code === 2) return '兼容播放网络中断。请检查 GPT-SoVITS 服务是否在线。';
   if (code === 3) return '兼容播放无法解码服务器返回的音频。请确认服务端输出的是 WAV。';
   if (code === 4) {
-    return '兼容播放无法读取服务器返回的音频。常见原因是接口路径、参考音频路径或模型配置错误；兼容模式无法读取具体 HTTP 状态，请查看服务端日志。';
+    return '兼容播放无法读取服务器返回的音频。常见原因是接口路径、参考音频路径、模型配置错误，或页面安全策略拦截了外部音频；兼容模式无法读取具体 HTTP 状态，请查看服务端日志。';
   }
   return '兼容播放失败。请检查服务器状态、参考音频路径和接口格式。';
 }
@@ -520,6 +520,9 @@ export class GptSoVitsSpeech {
 
   async playCompatAudio(audio, onStart, signal) {
     if (signal?.aborted) return { status: 'cancelled' };
+    if (audio?.error) {
+      return { status: 'error', error: new GsvSpeechError(compatAudioErrorMessage(audio)) };
+    }
     this.compatAudio = audio;
     return new Promise((resolve) => {
       let settled = false;
